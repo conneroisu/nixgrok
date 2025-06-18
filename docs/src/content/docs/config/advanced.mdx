@@ -1,0 +1,648 @@
+---
+title: Advanced Configuration
+description: Advanced ngrok features for complex deployments and enterprise use
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# Advanced Configuration
+
+This guide covers advanced ngrok features for complex deployments, enterprise environments, and production systems.
+
+<Aside type="note" title="Prerequisites">
+Familiar with [basic configuration](/config/basic/) and have a working ngrok setup.
+</Aside>
+
+## Multi-Environment Deployments
+
+### Environment-Specific Configuration
+
+Manage different environments with conditional configuration:
+
+<Tabs>
+  <TabItem label="Development">
+    ```nix title="environments/development.nix"
+    { config, lib, ... }:
+    {
+      services.ngrok = {
+        enable = true;
+        authToken = "dev-token";
+        region = "us";
+        metadata = "development-env";
+        
+        tunnels = {
+          # Development web server
+          web = {
+            protocol = "http";
+            port = 3000;
+            subdomain = "myapp-dev";
+            
+            # Development-friendly settings
+            inspect = true;              # Enable traffic inspection
+            websocket_tcp_converter = true;
+            
+            # Add debug headers
+            request_header_add = {
+              "X-Environment" = "development";
+              "X-Debug-Mode" = "true";
+            };
+          };
+          
+          # Hot reload server
+          hot-reload = {
+            protocol = "http";
+            port = 3001;
+            subdomain = "myapp-hmr";
+          };
+          
+          # Database for external testing
+          database = {
+            protocol = "tcp";
+            port = 5432;
+            # No authentication in dev
+          };
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Staging">
+    ```nix title="environments/staging.nix"
+    { config, lib, ... }:
+    {
+      services.ngrok = {
+        enable = true;
+        authToken = "staging-token";
+        region = "us";
+        metadata = "staging-env";
+        
+        tunnels = {
+          # Staging web application
+          web = {
+            protocol = "https";
+            port = 8080;
+            subdomain = "myapp-staging";
+            
+            # Basic authentication for staging
+            auth = "staging:preview123";
+            
+            # Security headers
+            response_header_add = {
+              "X-Frame-Options" = "SAMEORIGIN";
+              "X-Environment" = "staging";
+            };
+            
+            # Performance monitoring
+            circuit_breaker = 0.2;      # More tolerant than prod
+            compression = true;
+          };
+          
+          # API with basic protection
+          api = {
+            protocol = "https";
+            port = 3000;
+            subdomain = "api-staging";
+            
+            # IP restrictions for staging
+            ip_restriction_allow_cidrs = [
+              "10.0.0.0/8"               # Internal networks
+              "203.0.113.0/24"           # Office network
+            ];
+          };
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Production">
+    ```nix title="environments/production.nix"
+    { config, lib, ... }:
+    {
+      services.ngrok = {
+        enable = true;
+        authToken = builtins.readFile "/run/secrets/ngrok-prod-token";
+        region = "us";
+        metadata = "production-v1.0";
+        
+        tunnels = {
+          # Production web application
+          web = {
+            protocol = "https";
+            port = 8080;
+            hostname = "app.mycompany.com";  # Custom domain
+            
+            # OAuth authentication
+            oauth = {
+              provider = "google";
+              allow_domains = [ "mycompany.com" ];
+              scopes = [ "openid" "email" ];
+            };
+            
+            # Production security headers
+            response_header_add = {
+              "Strict-Transport-Security" = "max-age=31536000; includeSubDomains";
+              "X-Frame-Options" = "DENY";
+              "X-Content-Type-Options" = "nosniff";
+              "Content-Security-Policy" = "default-src 'self'";
+            };
+            
+            # Performance and reliability
+            circuit_breaker = 0.05;     # Low tolerance for errors
+            compression = true;
+            inspect = false;             # Disable for performance
+          };
+          
+          # Production API
+          api = {
+            protocol = "https";
+            port = 3000;
+            hostname = "api.mycompany.com";
+            
+            # Multiple security layers
+            oauth = {
+              provider = "google";
+              allow_domains = [ "mycompany.com" ];
+            };
+            
+            mutual_tls_cas = [ "/etc/ssl/certs/company-ca.crt" ];
+            
+            ip_restriction_allow_cidrs = [
+              "10.0.0.0/8"               # Internal only
+            ];
+            
+            circuit_breaker = 0.03;      # Very low tolerance
+          };
+        };
+      };
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+### Environment Selection
+
+<FileTree>
+- configuration.nix
+- environments/
+  - development.nix
+  - staging.nix
+  - production.nix
+</FileTree>
+
+```nix title="configuration.nix"
+{ config, lib, pkgs, ... }:
+let
+  environment = builtins.getEnv "DEPLOY_ENV" or "development";
+in
+{
+  imports = [
+    (./environments + "/${environment}.nix")
+  ];
+  
+  # Environment-specific overrides
+  services.ngrok.user = "ngrok-${environment}";
+  
+  # Create environment-specific users
+  users.users."ngrok-${environment}" = {
+    isSystemUser = true;
+    group = "ngrok";
+  };
+}
+```
+
+<Aside type="tip" title="Deployment Script">
+```bash
+# Deploy to different environments
+DEPLOY_ENV=development sudo nixos-rebuild switch
+DEPLOY_ENV=staging sudo nixos-rebuild switch  
+DEPLOY_ENV=production sudo nixos-rebuild switch
+```
+</Aside>
+
+## Custom Domains and DNS
+
+### Domain Configuration
+
+<Badge text="Paid Plan Required" variant="caution" /> Custom domains require ngrok Pro or Enterprise.
+
+<Steps>
+1. **Configure ngrok tunnel**
+   
+   ```nix
+   services.ngrok.tunnels.production = {
+     protocol = "https";
+     port = 8080;
+     hostname = "app.mycompany.com";
+   };
+   ```
+
+2. **Set up DNS records**
+   
+   Add CNAME record pointing to ngrok:
+   ```dns
+   app.mycompany.com.  CNAME  tunnel.us.ngrok.com.
+   ```
+
+3. **Configure domain in ngrok dashboard**
+   
+   1. Go to ngrok dashboard
+   2. Navigate to "Domains" section
+   3. Add your domain and verify ownership
+   4. Configure SSL certificate (automatic with ngrok)
+</Steps>
+
+### Wildcard Domains
+
+<Badge text="Enterprise Only" variant="caution" />
+
+```nix
+services.ngrok.tunnels = {
+  # Main application
+  app = {
+    protocol = "https";
+    port = 8080;
+    hostname = "app.mycompany.com";
+  };
+  
+  # API subdomain
+  api = {
+    protocol = "https";
+    port = 3000;
+    hostname = "api.mycompany.com";
+  };
+  
+  # Admin subdomain
+  admin = {
+    protocol = "https";
+    port = 8443;
+    hostname = "admin.mycompany.com";
+  };
+};
+```
+
+## Advanced Security Patterns
+
+### Defense in Depth
+
+Implement multiple security layers:
+
+```nix
+services.ngrok.tunnels.fortress = {
+  protocol = "https";
+  port = 8443;
+  hostname = "secure.mycompany.com";
+  
+  # Layer 1: Network access control
+  ip_restriction_allow_cidrs = [
+    "10.0.0.0/8"                    # Corporate network
+    "203.0.113.100/32"              # Specific admin IP
+  ];
+  
+  # Layer 2: OAuth authentication
+  oauth = {
+    provider = "google";
+    allow_emails = [
+      "admin@mycompany.com"
+      "security@mycompany.com"
+    ];
+    scopes = [ "openid" "email" "profile" ];
+  };
+  
+  # Layer 3: Client certificate authentication  
+  mutual_tls_cas = [
+    "/etc/ssl/certs/corporate-ca.crt"
+    "/etc/ssl/certs/admin-ca.crt"
+  ];
+  
+  # Layer 4: Circuit breaker for DoS protection
+  circuit_breaker = 0.01;            # Very strict
+  
+  # Layer 5: Security headers
+  response_header_add = {
+    "Strict-Transport-Security" = "max-age=31536000; includeSubDomains; preload";
+    "X-Frame-Options" = "DENY";
+    "X-Content-Type-Options" = "nosniff";
+    "Content-Security-Policy" = "default-src 'none'; script-src 'self'; style-src 'self'";
+    "Referrer-Policy" = "strict-origin-when-cross-origin";
+  };
+  
+  # Layer 6: Request filtering
+  request_header_remove = [
+    "X-Forwarded-For"               # Remove proxy headers
+    "X-Real-IP"
+  ];
+  
+  # Layer 7: Disable inspection for privacy
+  inspect = false;
+};
+```
+
+### Zero-Trust Architecture
+
+```nix
+services.ngrok.tunnels = {
+  # Public API - minimal trust
+  public-api = {
+    protocol = "https";
+    port = 8000;
+    hostname = "public-api.mycompany.com";
+    
+    # Rate limiting via circuit breaker
+    circuit_breaker = 0.1;
+    
+    # Webhook verification for known sources
+    webhook_verification = {
+      provider = "github";
+      secret = "webhook-secret";
+    };
+  };
+  
+  # Internal API - high trust required
+  internal-api = {
+    protocol = "https";
+    port = 8001;
+    hostname = "internal-api.mycompany.com";
+    
+    # Multiple authentication methods
+    oauth = {
+      provider = "google";
+      allow_domains = [ "mycompany.com" ];
+    };
+    
+    mutual_tls_cas = [ "/etc/ssl/certs/internal-ca.crt" ];
+    
+    # Strict network access
+    ip_restriction_allow_cidrs = [ "10.0.0.0/16" ];
+    
+    # No circuit breaker - fail fast
+    inspect = false;
+  };
+  
+  # Admin interface - maximum trust required
+  admin = {
+    protocol = "https";
+    port = 8443;
+    hostname = "admin.mycompany.com";
+    
+    # OIDC with custom claims
+    oidc = {
+      issuer_url = "https://auth.mycompany.com";
+      client_id = "admin-interface";
+      client_secret = "oidc-admin-secret";
+      allow_emails = [ "admin@mycompany.com" ];
+      scopes = [ "openid" "email" "profile" "admin" ];
+    };
+    
+    # Client certificates required
+    mutual_tls_cas = [ "/etc/ssl/certs/admin-ca.crt" ];
+    
+    # Single admin IP only
+    ip_restriction_allow_cidrs = [ "203.0.113.100/32" ];
+    
+    # Maximum security headers
+    response_header_add = {
+      "Strict-Transport-Security" = "max-age=31536000; includeSubDomains; preload";
+      "X-Frame-Options" = "DENY";
+      "Content-Security-Policy" = "default-src 'none'";
+    };
+  };
+};
+```
+
+## Performance Optimization
+
+### High-Traffic Configurations
+
+<Tabs>
+  <TabItem label="Web Applications">
+    ```nix
+    services.ngrok.tunnels.high-traffic-web = {
+      protocol = "https";
+      port = 8080;
+      hostname = "app.mycompany.com";
+      
+      # Performance optimizations
+      compression = true;              # Enable gzip compression
+      inspect = false;                 # Disable inspection overhead
+      
+      # Connection settings
+      # Note: These would be in extraArgs if supported
+      extraArgs = [
+        "--log-level" "warn"           # Reduce logging overhead
+      ];
+      
+      # Efficient headers
+      response_header_add = {
+        "Cache-Control" = "public, max-age=3600";
+        "X-Content-Type-Options" = "nosniff";
+      };
+      
+      # Remove unnecessary headers
+      response_header_remove = [
+        "Server"
+        "X-Powered-By"
+      ];
+      
+      # Conservative circuit breaker
+      circuit_breaker = 0.2;
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="API Services">
+    ```nix
+    services.ngrok.tunnels.high-performance-api = {
+      protocol = "https";
+      port = 3000;
+      hostname = "api.mycompany.com";
+      
+      # API-specific optimizations
+      compression = true;              # Compress JSON responses
+      inspect = false;                 # Critical for API performance
+      
+      # API headers
+      response_header_add = {
+        "Content-Type" = "application/json";
+        "Access-Control-Allow-Origin" = "https://app.mycompany.com";
+        "Cache-Control" = "no-cache";  # API responses shouldn't be cached
+      };
+      
+      # Tight circuit breaker for APIs
+      circuit_breaker = 0.05;
+      
+      # Minimal authentication for performance
+      auth = "api:high-performance-key";
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="WebSocket Services">
+    ```nix
+    services.ngrok.tunnels.websocket-service = {
+      protocol = "http";               # HTTP for WebSocket upgrades
+      port = 8080;
+      hostname = "ws.mycompany.com";
+      
+      # WebSocket optimizations
+      websocket_tcp_converter = true;  # Enable WebSocket support
+      compression = false;             # Disable for real-time data
+      inspect = false;                 # Critical for WebSocket performance
+      
+      # WebSocket-friendly headers
+      response_header_add = {
+        "Access-Control-Allow-Origin" = "*";
+        "Connection" = "Upgrade";
+      };
+      
+      # No circuit breaker for WebSocket
+      # (would interfere with persistent connections)
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### Resource Management
+
+```nix
+# Systemd service optimizations
+systemd.services = {
+  # High-priority tunnel
+  "ngrok-critical" = {
+    serviceConfig = {
+      Nice = -10;                      # Higher CPU priority
+      IOSchedulingClass = 1;           # Real-time I/O scheduling
+      CPUAffinity = "0-3";             # Bind to specific CPU cores
+      MemoryLimit = "512M";            # Limit memory usage
+    };
+  };
+  
+  # Standard tunnel
+  "ngrok-standard" = {
+    serviceConfig = {
+      Nice = 0;                        # Normal priority
+      MemoryLimit = "256M";
+      CPUQuota = "50%";                # Limit CPU usage
+    };
+  };
+  
+  # Background tunnel
+  "ngrok-background" = {
+    serviceConfig = {
+      Nice = 10;                       # Lower priority
+      MemoryLimit = "128M";
+      CPUQuota = "25%";
+      IOSchedulingClass = 3;           # Idle I/O scheduling
+    };
+  };
+};
+```
+
+## Monitoring and Observability
+
+### Prometheus Metrics
+
+<Badge text="Enterprise Feature" variant="tip" />
+
+```nix
+services.ngrok.tunnels.monitored-service = {
+  protocol = "https";
+  port = 8080;
+  hostname = "app.mycompany.com";
+  
+  # Enable metrics collection
+  inspect = true;                    # Required for detailed metrics
+  
+  # Add monitoring headers
+  request_header_add = {
+    "X-Request-ID" = "$request_id";
+    "X-Trace-ID" = "$trace_id";
+  };
+  
+  response_header_add = {
+    "X-Response-Time" = "$response_time";
+    "X-Tunnel-ID" = "monitored-service";
+  };
+};
+
+# Prometheus configuration
+services.prometheus = {
+  enable = true;
+  scrapeConfigs = [
+    {
+      job_name = "ngrok";
+      static_configs = [{
+        targets = [ "localhost:4040" ];  # ngrok metrics endpoint
+      }];
+    }
+  ];
+};
+```
+
+### Log Aggregation
+
+```nix
+# Structured logging
+systemd.services."ngrok@".serviceConfig = {
+  StandardOutput = "journal";
+  StandardError = "journal";
+  SyslogIdentifier = "ngrok";
+};
+
+# Log forwarding to external systems
+services.vector = {
+  enable = true;
+  settings = {
+    sources.ngrok_logs = {
+      type = "journald";
+      units = [ "ngrok-*.service" ];
+    };
+    
+    transforms.parse_ngrok = {
+      type = "remap";
+      inputs = [ "ngrok_logs" ];
+      source = ''
+        .tunnel_name = parse_regex!(.message, r'tunnel "(?P<name>[^"]+)"').name
+        .tunnel_url = parse_regex!(.message, r'url=(?P<url>[^ ]+)').url
+      '';
+    };
+    
+    sinks.elasticsearch = {
+      type = "elasticsearch";
+      inputs = [ "parse_ngrok" ];
+      endpoints = [ "https://elasticsearch.mycompany.com:9200" ];
+      index = "ngrok-logs-%Y.%m.%d";
+    };
+  };
+};
+```
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard
+    title="Security Configuration"
+    description="Implement enterprise-grade security features"
+    href="/config/security/"
+  />
+  <LinkCard
+    title="Performance Tuning"
+    description="Optimize for high-traffic production use"
+    href="/config/performance/"
+  />
+  <LinkCard
+    title="Enterprise Examples"
+    description="Complete enterprise deployment examples"
+    href="/examples/enterprise/"
+  />
+  <LinkCard
+    title="Monitoring Guide"
+    description="Set up comprehensive monitoring"
+    href="/deployment/monitoring/"
+  />
+</CardGrid>
+
+---
+
+These advanced patterns enable complex, production-ready deployments with enterprise-grade security, performance, and observability.

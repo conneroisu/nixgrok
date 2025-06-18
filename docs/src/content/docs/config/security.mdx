@@ -1,0 +1,640 @@
+---
+title: Security Configuration
+description: Comprehensive security features for production ngrok deployments
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Security Configuration
+
+This guide covers comprehensive security features available in the ngrok NixOS service, from basic authentication to enterprise-grade security hardening.
+
+## Security Overview
+
+The ngrok NixOS service provides multiple layers of security:
+
+<CardGrid>
+  <Card title="Authentication" icon="user">
+    HTTP Basic Auth, OAuth, OIDC, and mutual TLS
+  </Card>
+  <Card title="Network Security" icon="shield">
+    IP restrictions, circuit breakers, and firewall integration
+  </Card>
+  <Card title="Data Protection" icon="lock">
+    Header manipulation, request filtering, and encryption
+  </Card>
+  <Card title="System Security" icon="approve-check">
+    User isolation, file permissions, and systemd hardening
+  </Card>
+</CardGrid>
+
+## Authentication Methods
+
+### HTTP Basic Authentication
+
+Simple username/password authentication:
+
+```nix
+services.ngrok.tunnels.admin = {
+  protocol = "https";
+  port = 8080;
+  auth = "admin:secretpassword123";  # username:password
+};
+```
+
+<Card title="⚠️ Security Warning" icon="warning">
+  Basic auth credentials are transmitted with every request. Always use HTTPS and strong passwords.
+</Card>
+
+### IP Restrictions
+
+Control access by IP address or CIDR blocks:
+
+<Tabs>
+  <TabItem label="Allow Lists">
+    ```nix
+    services.ngrok.tunnels.internal = {
+      protocol = "https";
+      port = 8080;
+      
+      # Allow specific networks
+      ip_restriction_allow_cidrs = [
+        "10.0.0.0/8"          # Internal network
+        "172.16.0.0/12"       # Docker networks
+        "203.0.113.0/24"      # Office network
+        "198.51.100.10/32"    # Specific admin IP
+      ];
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Deny Lists">
+    ```nix
+    services.ngrok.tunnels.public-api = {
+      protocol = "https";
+      port = 8000;
+      
+      # Block specific networks
+      ip_restriction_deny_cidrs = [
+        "192.0.2.0/24"        # Known bad actors
+        "203.0.113.50/32"     # Blocked IP
+      ];
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Combined">
+    ```nix
+    services.ngrok.tunnels.secure-api = {
+      protocol = "https";
+      port = 8443;
+      
+      # Allow corporate networks
+      ip_restriction_allow_cidrs = [
+        "10.0.0.0/8"
+        "172.16.0.0/12"
+      ];
+      
+      # But block specific troublesome subnets
+      ip_restriction_deny_cidrs = [
+        "10.99.0.0/24"        # Guest network
+      ];
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### OAuth Integration
+
+Secure with major OAuth providers:
+
+<Tabs>
+  <TabItem label="Google Workspace">
+    ```nix
+    services.ngrok.tunnels.admin-panel = {
+      protocol = "https";
+      port = 8080;
+      
+      oauth = {
+        provider = "google";
+        allow_domains = [ "mycompany.com" ];  # Company domain only
+        scopes = [ "openid" "email" "profile" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="GitHub Organizations">
+    ```nix
+    services.ngrok.tunnels.dev-tools = {
+      protocol = "https";
+      port = 3000;
+      
+      oauth = {
+        provider = "github";
+        allow_emails = [
+          "developer@mycompany.com"
+          "devops@mycompany.com"
+        ];
+        scopes = [ "user:email" "read:org" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Microsoft Azure AD">
+    ```nix
+    services.ngrok.tunnels.enterprise = {
+      protocol = "https";
+      port = 8090;
+      
+      oauth = {
+        provider = "microsoft";
+        allow_domains = [ "mycompany.com" ];
+        scopes = [ "openid" "email" "profile" "User.Read" ];
+      };
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### OpenID Connect (OIDC)
+
+Integrate with custom identity providers:
+
+```nix
+services.ngrok.tunnels.enterprise-app = {
+  protocol = "https";
+  port = 8443;
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";  # Your OIDC provider
+    client_id = "ngrok-tunnel-client";
+    client_secret = "oidc-client-secret";
+    
+    # Fine-grained access control
+    allow_emails = [
+      "ceo@mycompany.com"
+      "cto@mycompany.com"
+    ];
+    
+    scopes = [ "openid" "email" "profile" "groups" ];
+  };
+};
+```
+
+### Mutual TLS (Client Certificates)
+
+Strong authentication using client certificates:
+
+```nix
+services.ngrok.tunnels.secure-api = {
+  protocol = "https";
+  port = 8443;
+  
+  # Require client certificates signed by these CAs
+  mutual_tls_cas = [
+    "/etc/ssl/certs/company-ca.crt"
+    "/etc/ssl/certs/partner-ca.crt"
+  ];
+};
+```
+
+**Client certificate setup:**
+
+```bash
+# Generate client certificate
+openssl genrsa -out client.key 2048
+openssl req -new -key client.key -out client.csr
+openssl x509 -req -in client.csr -CA company-ca.crt -CAkey company-ca.key -out client.crt
+
+# Use with curl
+curl --cert client.crt --key client.key https://your-tunnel.ngrok.app/
+```
+
+### Webhook Verification
+
+Verify webhooks from external services:
+
+<Tabs>
+  <TabItem label="GitHub">
+    ```nix
+    services.ngrok.tunnels.github-webhooks = {
+      protocol = "https";
+      port = 9000;
+      
+      webhook_verification = {
+        provider = "github";
+        secret = "webhook-secret-from-github";
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Stripe">
+    ```nix
+    services.ngrok.tunnels.payment-webhooks = {
+      protocol = "https";
+      port = 8080;
+      
+      webhook_verification = {
+        provider = "stripe";
+        secret = "whsec_stripe_webhook_secret";
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Slack">
+    ```nix
+    services.ngrok.tunnels.slack-app = {
+      protocol = "https";
+      port = 3000;
+      
+      webhook_verification = {
+        provider = "slack";
+        secret = "slack-signing-secret";
+      };
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+## Network Security
+
+### Circuit Breakers
+
+Automatically reject requests when error rates are high:
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "https";
+  port = 8080;
+  circuit_breaker = 0.1;  # Reject when 10% of responses are 5XX
+};
+```
+
+**How it works:**
+- Monitors the ratio of 5XX responses
+- When ratio exceeds threshold, ngrok returns 503 Service Unavailable
+- Protects backend services from cascading failures
+- Automatically recovers when error rate decreases
+
+### Header Security
+
+Add security headers to responses:
+
+```nix
+services.ngrok.tunnels.web-app = {
+  protocol = "https";
+  port = 8080;
+  
+  response_header_add = {
+    # Prevent clickjacking
+    "X-Frame-Options" = "DENY";
+    
+    # Prevent MIME type sniffing
+    "X-Content-Type-Options" = "nosniff";
+    
+    # Enable XSS protection
+    "X-XSS-Protection" = "1; mode=block";
+    
+    # Enforce HTTPS
+    "Strict-Transport-Security" = "max-age=31536000; includeSubDomains";
+    
+    # Content Security Policy
+    "Content-Security-Policy" = "default-src 'self'; script-src 'self' 'unsafe-inline'";
+    
+    # Hide server information
+    "Server" = "";
+  };
+  
+  # Remove potentially sensitive headers
+  response_header_remove = [
+    "X-Powered-By"
+    "Server"
+    "X-AspNet-Version"
+  ];
+};
+```
+
+### Request Filtering
+
+Filter and modify incoming requests:
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "https";
+  port = 8080;
+  
+  # Add security headers to requests
+  request_header_add = {
+    "X-Forwarded-Proto" = "https";
+    "X-Real-IP" = "$remote_addr";
+    "X-Request-ID" = "$request_id";
+  };
+  
+  # Remove potentially dangerous headers
+  request_header_remove = [
+    "X-Original-Host"
+    "X-Forwarded-Server"
+  ];
+};
+```
+
+## Multi-Layer Security
+
+Combine multiple security measures for defense in depth:
+
+```nix
+services.ngrok.tunnels.high-security = {
+  protocol = "https";
+  port = 8443;
+  hostname = "secure.mycompany.com";
+  
+  # Layer 1: Network restrictions
+  ip_restriction_allow_cidrs = [ "10.0.0.0/8" ];
+  
+  # Layer 2: Authentication  
+  oauth = {
+    provider = "google";
+    allow_domains = [ "mycompany.com" ];
+    scopes = [ "openid" "email" ];
+  };
+  
+  # Layer 3: Client certificates
+  mutual_tls_cas = [ "/etc/ssl/certs/company-ca.crt" ];
+  
+  # Layer 4: Circuit breaker
+  circuit_breaker = 0.05;  # Very low tolerance
+  
+  # Layer 5: Security headers
+  response_header_add = {
+    "Strict-Transport-Security" = "max-age=31536000; includeSubDomains; preload";
+    "X-Frame-Options" = "DENY";
+    "X-Content-Type-Options" = "nosniff";
+    "Content-Security-Policy" = "default-src 'none'; script-src 'self'; style-src 'self'";
+  };
+  
+  # Layer 6: Disable inspection for privacy
+  inspect = false;
+};
+```
+
+## System-Level Security
+
+### User Isolation
+
+The service runs under dedicated user accounts:
+
+```nix
+services.ngrok = {
+  enable = true;
+  user = "ngrok";     # Dedicated user (default)
+  group = "ngrok";    # Dedicated group (default)
+  # ...
+};
+```
+
+### File Permissions
+
+Configuration files are secured:
+
+```bash
+# Config file permissions
+/etc/ngrok/ngrok.yml  # 0600 (read/write for ngrok user only)
+
+# Certificate permissions  
+/etc/ssl/certs/       # 0644 (readable)
+/etc/ssl/private/     # 0600 (ngrok user only)
+```
+
+### Systemd Security
+
+Systemd services include security hardening:
+
+```nix
+# Automatically applied by the module
+systemd.services."ngrok@".serviceConfig = {
+  # User isolation
+  User = "ngrok";
+  Group = "ngrok";
+  DynamicUser = false;
+  
+  # Filesystem restrictions
+  PrivateTmp = true;
+  ProtectSystem = "strict";
+  ProtectHome = true;
+  ReadWritePaths = [ "/var/lib/ngrok" ];
+  
+  # Network restrictions
+  PrivateNetwork = false;  # Needs network access
+  RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
+  
+  # Process restrictions
+  NoNewPrivileges = true;
+  RestrictRealtime = true;
+  RestrictSUIDSGID = true;
+  
+  # System call restrictions
+  SystemCallArchitectures = "native";
+  SystemCallFilter = "@system-service";
+  SystemCallErrorNumber = "EPERM";
+};
+```
+
+## Compliance Features
+
+### Audit Logging
+
+Enable comprehensive request logging:
+
+```nix
+services.ngrok.tunnels.compliance-api = {
+  protocol = "https";
+  port = 8080;
+  
+  # Enable detailed inspection for audit trails
+  inspect = true;
+  
+  # Add audit headers
+  request_header_add = {
+    "X-Audit-User" = "$ngrok_auth_user_email";
+    "X-Audit-Timestamp" = "$time_iso8601";
+    "X-Audit-Request-ID" = "$request_id";
+  };
+};
+```
+
+### Data Retention
+
+Configure log retention policies:
+
+```nix
+# System-wide journald configuration
+services.journald.extraConfig = ''
+  SystemMaxUse=1G
+  MaxRetentionSec=90days
+  MaxFileSec=1day
+'';
+
+# ngrok-specific log retention
+systemd.services."ngrok@".serviceConfig = {
+  StandardOutput = "journal";
+  StandardError = "journal";
+  SyslogIdentifier = "ngrok";
+};
+```
+
+### File Integrity Monitoring
+
+Monitor configuration files for changes:
+
+```nix
+# Enable AIDE for file integrity
+security.aide = {
+  enable = true;
+  settings = {
+    # Monitor ngrok configurations
+    "/etc/ngrok" = "R";
+    "/etc/ssl/certs" = "R";
+    "/etc/ssl/private" = "R";
+  };
+};
+```
+
+## Security Best Practices
+
+### Configuration Security
+
+<CardGrid>
+  <Card title="Secrets Management" icon="key">
+    ```nix
+    # ❌ Don't hardcode secrets
+    authToken = "2abc123def...";
+    
+    # ✓ Use environment variables or external files
+    authToken = builtins.readFile "/run/secrets/ngrok-token";
+    ```
+  </Card>
+  
+  <Card title="Minimal Permissions" icon="shield">
+    ```nix
+    # ✓ Use minimal OAuth scopes
+    oauth.scopes = [ "openid" "email" ];
+    
+    # ❌ Don't request unnecessary permissions
+    oauth.scopes = [ "openid" "email" "profile" "read:org" "repo" ];
+    ```
+  </Card>
+  
+  <Card title="Defense in Depth" icon="approve-check">
+    ```nix
+    # ✓ Layer multiple security measures
+    ip_restriction_allow_cidrs = [ "10.0.0.0/8" ];
+    oauth = { provider = "google"; /* ... */ };
+    circuit_breaker = 0.1;
+    ```
+  </Card>
+  
+  <Card title="Regular Updates" icon="rocket">
+    ```bash
+    # ✓ Keep ngrok and system updated
+    nix flake update
+    sudo nixos-rebuild switch
+    ```
+  </Card>
+</CardGrid>
+
+### Monitoring Security
+
+```nix
+# Monitor authentication failures
+systemd.services.ngrok-security-monitor = {
+  enable = true;
+  script = ''
+    journalctl -u 'ngrok-*' -f | grep -i "auth\|denied\|blocked" | \
+      while read line; do
+        echo "[SECURITY] $line" | systemd-cat -t ngrok-security
+      done
+  '';
+  wantedBy = [ "multi-user.target" ];
+};
+```
+
+### Security Testing
+
+```bash
+# Test authentication
+curl -I https://your-tunnel.ngrok.app/
+# Should return 302 redirect to OAuth provider
+
+# Test IP restrictions
+curl --interface wrong-ip https://your-tunnel.ngrok.app/
+# Should return 403 Forbidden
+
+# Test circuit breaker
+for i in {1..100}; do
+  curl https://your-tunnel.ngrok.app/trigger-error
+done
+# Should eventually return 503 Service Unavailable
+```
+
+## Emergency Procedures
+
+### Incident Response
+
+```bash
+# Immediately block all traffic
+sudo systemctl stop 'ngrok-*'
+
+# Check recent access logs
+journalctl -u 'ngrok-*' --since "1 hour ago" | grep -E "(auth|error|denied)"
+
+# Rotate auth tokens
+# 1. Generate new token in ngrok dashboard
+# 2. Update configuration
+# 3. Rebuild and restart services
+```
+
+### Recovery Procedures
+
+```bash
+# Restore from backup configuration
+sudo cp /etc/nixos/configuration.nix.backup /etc/nixos/configuration.nix
+sudo nixos-rebuild switch
+
+# Reset to secure defaults
+sudo systemctl stop 'ngrok-*'
+# Edit configuration to remove compromised settings
+sudo nixos-rebuild switch
+```
+
+## Next Steps
+
+<CardGrid>
+  <Card title="🔐 OAuth Guide" icon="user">
+    Detailed OAuth provider setup
+    
+    [OAuth Integration →](/auth/oauth/)
+  </Card>
+  <Card title="🔒 OIDC Setup" icon="shield">
+    Enterprise identity integration
+    
+    [OIDC Configuration →](/auth/oidc/)
+  </Card>
+  <Card title="📊 Monitoring" icon="chart">
+    Monitor security events
+    
+    [Monitoring Guide →](/deployment/monitoring/)
+  </Card>
+  <Card title="🏢 Enterprise" icon="building">
+    Enterprise deployment patterns
+    
+    [Enterprise Setup →](/examples/enterprise/)
+  </Card>
+</CardGrid>
+
+---
+
+With these security features, you can deploy ngrok tunnels that meet enterprise security requirements while maintaining ease of use and performance.

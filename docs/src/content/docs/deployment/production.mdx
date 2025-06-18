@@ -1,0 +1,1174 @@
+---
+title: Production Setup
+description: Deploy ngrok tunnels in production with monitoring, security, and high availability
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# Production Setup
+
+Deploy ngrok tunnels in production environments with enterprise-grade security, monitoring, and high availability.
+
+<Aside type="tip" title="Production Checklist">
+This guide covers security hardening, monitoring, backup strategies, and operational procedures for production ngrok deployments.
+</Aside>
+
+## Production Architecture
+
+### High-Level Overview
+
+<FileTree>
+- **Load Balancer** (nginx/HAProxy)
+  - **Application Servers** (multiple instances)
+    - **ngrok Tunnels** (per-service)
+    - **Application Services** (web, api, workers)
+  - **Monitoring Stack** (Prometheus, Grafana)
+  - **Logging Stack** (Vector, Elasticsearch)
+- **Identity Provider** (OIDC/SAML)
+- **Secrets Management** (Vault, agenix)
+- **Backup Systems** (automated backups)
+</FileTree>
+
+### Network Architecture
+
+```nix title="production-network.nix"
+{
+  # Production network configuration
+  networking = {
+    hostName = "ngrok-prod-01";
+    domain = "mycompany.com";
+    
+    # Firewall configuration
+    firewall = {
+      enable = true;
+      allowedTCPPorts = [
+        22    # SSH (restricted)
+        80    # HTTP (redirect to HTTPS)
+        443   # HTTPS
+        8080  # Application
+        9090  # Prometheus (internal)
+      ];
+      
+      # Restrict SSH access
+      extraCommands = ''
+        # Allow SSH only from management network
+        iptables -A nixos-fw -p tcp --dport 22 -s 10.0.0.0/8 -j ACCEPT
+        iptables -A nixos-fw -p tcp --dport 22 -j DROP
+        
+        # Rate limiting for HTTP
+        iptables -A nixos-fw -p tcp --dport 80 -m limit --limit 100/sec -j ACCEPT
+        iptables -A nixos-fw -p tcp --dport 443 -m limit --limit 100/sec -j ACCEPT
+      '';
+    };
+    
+    # Network time synchronization
+    timeServers = [
+      "0.pool.ntp.org"
+      "1.pool.ntp.org"
+      "time.cloudflare.com"
+    ];
+  };
+}
+```
+
+## Production ngrok Configuration
+
+### Multi-Service Production Setup
+
+<Tabs>
+  <TabItem label="Web Application">
+    ```nix title="services/web-app.nix"
+    {
+      services.ngrok.tunnels.production-web = {
+        protocol = "https";
+        port = 8080;
+        hostname = "app.mycompany.com";
+        
+        # Production OAuth configuration
+        oauth = {
+          provider = "google";
+          allow_domains = [ "mycompany.com" ];
+          scopes = [ "openid" "email" "profile" ];
+        };
+        
+        # Security headers for production
+        response_header_add = {
+          "Strict-Transport-Security" = "max-age=31536000; includeSubDomains; preload";
+          "X-Frame-Options" = "DENY";
+          "X-Content-Type-Options" = "nosniff";
+          "Content-Security-Policy" = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+          "Referrer-Policy" = "strict-origin-when-cross-origin";
+          "X-XSS-Protection" = "1; mode=block";
+        };
+        
+        # Performance optimizations
+        compression = true;
+        circuit_breaker = 0.05;  # Strict error tolerance
+        inspect = false;         # Disable for performance
+        
+        # Production metadata
+        metadata = "production-web-v1.2.3";
+      };
+      
+      # Web application service
+      systemd.services.web-app = {
+        enable = true;
+        description = "Production Web Application";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" "postgresql.service" ];
+        
+        serviceConfig = {
+          Type = "simple";
+          User = "webapp";
+          Group = "webapp";
+          ExecStart = "${pkgs.nodejs}/bin/node /var/lib/webapp/dist/server.js";
+          
+          # Production environment
+          Environment = [
+            "NODE_ENV=production"
+            "PORT=8080"
+            "DATABASE_URL=postgresql://webapp@localhost/webapp_prod"
+            "REDIS_URL=redis://localhost:6379/0"
+          ];
+          
+          # Resource limits
+          MemoryLimit = "2G";
+          CPUQuota = "200%";
+          
+          # Security hardening
+          NoNewPrivileges = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          ReadWritePaths = [ "/var/lib/webapp" "/tmp" ];
+          
+          # Restart policies
+          Restart = "always";
+          RestartSec = "10";
+          StartLimitInterval = "60";
+          StartLimitBurst = "3";
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="API Service">
+    ```nix title="services/api.nix"
+    {
+      services.ngrok.tunnels.production-api = {
+        protocol = "https";
+        port = 3000;
+        hostname = "api.mycompany.com";
+        
+        # API authentication with OIDC
+        oidc = {
+          issuer_url = "https://auth.mycompany.com";
+          client_id = "production-api-client";
+          client_secret = config.age.secrets.api-oidc-secret.path;
+          scopes = [ "openid" "email" "api" ];
+          allow_domains = [ "mycompany.com" ];
+        };
+        
+        # API-specific headers
+        response_header_add = {
+          "Access-Control-Allow-Origin" = "https://app.mycompany.com";
+          "Access-Control-Allow-Methods" = "GET, POST, PUT, DELETE, OPTIONS";
+          "Access-Control-Allow-Headers" = "Authorization, Content-Type";
+          "X-API-Version" = "v2.1";
+          "Cache-Control" = "no-cache, no-store, must-revalidate";
+        };
+        
+        # Rate limiting via circuit breaker
+        circuit_breaker = 0.03;
+        compression = true;
+        inspect = false;
+        
+        metadata = "production-api-v2.1.0";
+      };
+      
+      # API service
+      systemd.services.api-service = {
+        enable = true;
+        description = "Production API Service";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" "postgresql.service" "redis.service" ];
+        
+        serviceConfig = {
+          Type = "simple";
+          User = "api";
+          Group = "api";
+          ExecStart = "${pkgs.python3.withPackages (ps: with ps; [ fastapi uvicorn sqlalchemy redis ])}/bin/uvicorn api.main:app --host 0.0.0.0 --port 3000 --workers 4";
+          
+          Environment = [
+            "ENVIRONMENT=production"
+            "API_VERSION=v2.1"
+            "DATABASE_URL=postgresql://api@localhost/api_prod"
+            "REDIS_URL=redis://localhost:6379/1"
+          ];
+          
+          # Resource limits
+          MemoryLimit = "1G";
+          CPUQuota = "150%";
+          
+          # Security
+          NoNewPrivileges = true;
+          ProtectSystem = "strict";
+          ReadWritePaths = [ "/var/lib/api" "/tmp" ];
+          
+          Restart = "always";
+          RestartSec = "5";
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Admin Interface">
+    ```nix title="services/admin.nix"
+    {
+      services.ngrok.tunnels.production-admin = {
+        protocol = "https";
+        port = 8443;
+        hostname = "admin.mycompany.com";
+        
+        # Multi-layer security for admin
+        oidc = {
+          issuer_url = "https://auth.mycompany.com";
+          client_id = "admin-interface";
+          client_secret = config.age.secrets.admin-oidc-secret.path;
+          scopes = [ "openid" "email" "admin" ];
+          
+          # Restrict to specific admin users
+          allow_emails = [
+            "admin@mycompany.com"
+            "cto@mycompany.com"
+            "devops@mycompany.com"
+          ];
+        };
+        
+        # Network restrictions
+        ip_restriction_allow_cidrs = [
+          "10.0.0.0/8"              # Corporate network
+          "203.0.113.0/24"          # Admin VPN
+        ];
+        
+        # Client certificate requirement
+        mutual_tls_cas = [ "/etc/ssl/certs/admin-ca.crt" ];
+        
+        # Maximum security headers
+        response_header_add = {
+          "Strict-Transport-Security" = "max-age=31536000; includeSubDomains; preload";
+          "X-Frame-Options" = "DENY";
+          "Content-Security-Policy" = "default-src 'none'; script-src 'self'; style-src 'self'";
+          "X-Admin-Access" = "restricted";
+        };
+        
+        # Strict circuit breaker
+        circuit_breaker = 0.01;
+        inspect = true;  # Enable for audit logging
+        
+        metadata = "admin-interface-secure";
+      };
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Security Hardening
+
+### System Security
+
+```nix title="security/hardening.nix"
+{
+  # Security hardening configuration
+  security = {
+    # Sudo configuration
+    sudo = {
+      enable = true;
+      wheelNeedsPassword = true;
+      extraConfig = ''
+        # Require password for sensitive commands
+        Defaults timestamp_timeout=5
+        Defaults logfile=/var/log/sudo.log
+        
+        # Restrict ngrok user
+        ngrok ALL=(root) NOPASSWD: /run/current-system/sw/bin/systemctl restart ngrok-*
+        ngrok ALL=(root) NOPASSWD: /run/current-system/sw/bin/systemctl status ngrok-*
+      '';
+    };
+    
+    # PAM configuration
+    pam.loginLimits = [
+      { domain = "@wheel"; type = "soft"; item = "nofile"; value = "64000"; }
+      { domain = "@wheel"; type = "hard"; item = "nofile"; value = "64000"; }
+      { domain = "ngrok"; type = "soft"; item = "nofile"; value = "32000"; }
+      { domain = "ngrok"; type = "hard"; item = "nofile"; value = "32000"; }
+    ];
+    
+    # AppArmor profiles
+    apparmor = {
+      enable = true;
+      profiles = {
+        "usr.bin.ngrok" = ''
+          #include <tunables/global>
+          
+          /usr/bin/ngrok {
+            #include <abstractions/base>
+            #include <abstractions/nameservice>
+            #include <abstractions/ssl_certs>
+            
+            capability net_bind_service,
+            
+            /etc/ngrok/** r,
+            /var/lib/ngrok/** rw,
+            /tmp/** rw,
+            
+            network inet stream,
+            network inet6 stream,
+            
+            deny /home/** r,
+            deny /root/** r,
+            deny /etc/shadow r,
+          }
+        '';
+      };
+    };
+  };
+  
+  # File integrity monitoring
+  security.aide = {
+    enable = true;
+    settings = {
+      database = "file:/var/lib/aide/aide.db";
+      database_out = "file:/var/lib/aide/aide.db.new";
+      
+      # Monitor critical files
+      "/etc/ngrok" = "R";
+      "/etc/ssl" = "R";
+      "/var/lib/ngrok" = "R";
+      "/etc/nixos" = "R";
+    };
+  };
+}
+```
+
+### Secrets Management
+
+<Tabs>
+  <TabItem label="agenix">
+    ```nix title="secrets/agenix.nix"
+    {
+      # Age-based secrets management
+      age.secrets = {
+        # ngrok auth tokens
+        ngrok-prod-token = {
+          file = ./secrets/ngrok-prod-token.age;
+          owner = "ngrok";
+          group = "ngrok";
+          mode = "0400";
+        };
+        
+        # OIDC client secrets
+        api-oidc-secret = {
+          file = ./secrets/api-oidc-secret.age;
+          owner = "ngrok";
+          group = "ngrok";
+          mode = "0400";
+        };
+        
+        admin-oidc-secret = {
+          file = ./secrets/admin-oidc-secret.age;
+          owner = "ngrok";
+          group = "ngrok";
+          mode = "0400";
+        };
+        
+        # Database passwords
+        database-password = {
+          file = ./secrets/database-password.age;
+          owner = "postgres";
+          group = "postgres";
+          mode = "0400";
+        };
+      };
+      
+      # Use secrets in ngrok configuration
+      services.ngrok = {
+        authToken = config.age.secrets.ngrok-prod-token.path;
+        
+        tunnels.production-api.oidc.client_secret = 
+          config.age.secrets.api-oidc-secret.path;
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Vault Integration">
+    ```nix title="secrets/vault.nix"
+    {
+      # HashiCorp Vault integration
+      services.vault-agent = {
+        enable = true;
+        settings = {
+          vault = {
+            address = "https://vault.mycompany.com";
+            tls_skip_verify = false;
+          };
+          
+          auto_auth = {
+            method = {
+              type = "aws";
+              config = {
+                role = "ngrok-production";
+              };
+            };
+            
+            sink = {
+              type = "file";
+              config = {
+                path = "/var/lib/vault-agent/token";
+              };
+            };
+          };
+          
+          template = [
+            {
+              source = "/etc/vault-agent/ngrok-config.tpl";
+              destination = "/etc/ngrok/secrets.conf";
+              perms = "0600";
+              command = "systemctl reload ngrok-*";
+            }
+          ];
+        };
+      };
+      
+      # Template for ngrok secrets
+      environment.etc."vault-agent/ngrok-config.tpl".text = ''
+        {{ with secret "secret/ngrok/production" }}
+        NGROK_AUTH_TOKEN={{ .Data.auth_token }}
+        OIDC_CLIENT_SECRET={{ .Data.oidc_client_secret }}
+        {{ end }}
+      '';
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Monitoring and Observability
+
+### Prometheus Metrics
+
+```nix title="monitoring/prometheus.nix"
+{
+  services.prometheus = {
+    enable = true;
+    port = 9090;
+    
+    # Retention and storage
+    retentionTime = "365d";
+    
+    globalConfig = {
+      scrape_interval = "15s";
+      evaluation_interval = "15s";
+    };
+    
+    scrapeConfigs = [
+      # ngrok tunnel metrics
+      {
+        job_name = "ngrok";
+        static_configs = [{
+          targets = [
+            "localhost:4040"  # ngrok web interface
+          ];
+        }];
+        scrape_interval = "10s";
+        metrics_path = "/api/metrics";
+      }
+      
+      # System metrics
+      {
+        job_name = "node";
+        static_configs = [{
+          targets = [ "localhost:9100" ];
+        }];
+      }
+      
+      # Application metrics
+      {
+        job_name = "webapp";
+        static_configs = [{
+          targets = [ "localhost:8080" ];
+        }];
+        metrics_path = "/metrics";
+      }
+      
+      {
+        job_name = "api";
+        static_configs = [{
+          targets = [ "localhost:3000" ];
+        }];
+        metrics_path = "/metrics";
+      }
+    ];
+    
+    # Alert rules
+    rules = [
+      ''
+        groups:
+        - name: ngrok
+          rules:
+          - alert: NgrokTunnelDown
+            expr: up{job="ngrok"} == 0
+            for: 30s
+            labels:
+              severity: critical
+            annotations:
+              summary: "ngrok tunnel is down"
+              description: "ngrok tunnel has been down for more than 30 seconds"
+          
+          - alert: NgrokHighErrorRate
+            expr: rate(ngrok_requests_total{status=~"5.."}[5m]) / rate(ngrok_requests_total[5m]) > 0.1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High error rate on ngrok tunnel"
+              description: "Error rate is {{ $value | humanizePercentage }}"
+          
+          - alert: NgrokHighLatency
+            expr: histogram_quantile(0.95, rate(ngrok_request_duration_seconds_bucket[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High latency on ngrok tunnel"
+              description: "95th percentile latency is {{ $value }}s"
+      ''
+    ];
+  };
+  
+  # Node exporter for system metrics
+  services.prometheus.exporters.node = {
+    enable = true;
+    port = 9100;
+    enabledCollectors = [
+      "systemd"
+      "processes"
+      "network"
+      "filesystem"
+      "cpu"
+      "memory"
+    ];
+  };
+}
+```
+
+### Grafana Dashboards
+
+```nix title="monitoring/grafana.nix"
+{
+  services.grafana = {
+    enable = true;
+    settings = {
+      server = {
+        http_addr = "127.0.0.1";
+        http_port = 3001;
+        domain = "grafana.mycompany.com";
+        root_url = "https://grafana.mycompany.com";
+      };
+      
+      security = {
+        admin_user = "admin";
+        admin_password = "$__file{${config.age.secrets.grafana-admin-password.path}}";
+        secret_key = "$__file{${config.age.secrets.grafana-secret-key.path}}";
+      };
+      
+      auth.google = {
+        enabled = true;
+        client_id = "your-google-client-id";
+        client_secret = "$__file{${config.age.secrets.grafana-google-secret.path}}";
+        scopes = "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
+        auth_url = "https://accounts.google.com/o/oauth2/auth";
+        token_url = "https://accounts.google.com/o/oauth2/token";
+        allowed_domains = "mycompany.com";
+      };
+    };
+    
+    provision = {
+      enable = true;
+      
+      datasources.settings.datasources = [
+        {
+          name = "Prometheus";
+          type = "prometheus";
+          access = "proxy";
+          url = "http://localhost:9090";
+          isDefault = true;
+        }
+      ];
+      
+      dashboards.settings.providers = [
+        {
+          name = "ngrok";
+          type = "file";
+          options.path = "/etc/grafana/dashboards";
+        }
+      ];
+    };
+  };
+  
+  # ngrok tunnel dashboard
+  environment.etc."grafana/dashboards/ngrok.json".text = builtins.toJSON {
+    dashboard = {
+      title = "ngrok Tunnels";
+      tags = [ "ngrok" "tunnels" ];
+      timezone = "UTC";
+      panels = [
+        {
+          title = "Tunnel Status";
+          type = "stat";
+          targets = [
+            {
+              expr = "up{job='ngrok'}";
+              legendFormat = "{{instance}}";
+            }
+          ];
+        }
+        {
+          title = "Request Rate";
+          type = "graph";
+          targets = [
+            {
+              expr = "rate(ngrok_requests_total[5m])";
+              legendFormat = "{{method}} {{status}}";
+            }
+          ];
+        }
+        {
+          title = "Response Time";
+          type = "graph";
+          targets = [
+            {
+              expr = "histogram_quantile(0.95, rate(ngrok_request_duration_seconds_bucket[5m]))";
+              legendFormat = "95th percentile";
+            }
+            {
+              expr = "histogram_quantile(0.50, rate(ngrok_request_duration_seconds_bucket[5m]))";
+              legendFormat = "50th percentile";
+            }
+          ];
+        }
+      ];
+    };
+  };
+}
+```
+
+### Log Management
+
+<Tabs>
+  <TabItem label="Vector + Elasticsearch">
+    ```nix title="logging/vector.nix"
+    {
+      services.vector = {
+        enable = true;
+        settings = {
+          # Sources
+          sources = {
+            ngrok_logs = {
+              type = "journald";
+              units = [ "ngrok-*.service" ];
+              include_units = [ "ngrok-production-web" "ngrok-production-api" "ngrok-production-admin" ];
+            };
+            
+            application_logs = {
+              type = "journald";
+              units = [ "web-app.service" "api-service.service" ];
+            };
+            
+            system_logs = {
+              type = "journald";
+              units = [ "sshd.service" "nginx.service" ];
+            };
+          };
+          
+          # Transforms
+          transforms = {
+            parse_ngrok = {
+              type = "remap";
+              inputs = [ "ngrok_logs" ];
+              source = ''
+                # Parse ngrok log format
+                .parsed = parse_regex!(.message, r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) (?P<level>\w+) (?P<component>\w+): (?P<message>.*)')
+                .timestamp = parse_timestamp!(.parsed.timestamp, format: "%Y-%m-%dT%H:%M:%SZ")
+                .level = .parsed.level
+                .component = .parsed.component
+                .message = .parsed.message
+                
+                # Extract tunnel information
+                if includes(.message, "started tunnel") {
+                  .tunnel_info = parse_regex!(.message, r'started tunnel: (?P<url>https?://[^ ]+) -> (?P<target>[^ ]+)')
+                }
+                
+                # Extract request information
+                if includes(.message, "HTTP") {
+                  .request_info = parse_regex!(.message, r'(?P<method>\w+) (?P<path>[^ ]+) (?P<status>\d+) (?P<duration>\d+)ms')
+                }
+              '';
+            };
+            
+            enrich_logs = {
+              type = "remap";
+              inputs = [ "parse_ngrok" ];
+              source = ''
+                .environment = "production"
+                .hostname = "${config.networking.hostName}"
+                .service = "ngrok"
+              '';
+            };
+          };
+          
+          # Sinks
+          sinks = {
+            elasticsearch = {
+              type = "elasticsearch";
+              inputs = [ "enrich_logs" ];
+              endpoints = [ "https://elasticsearch.mycompany.com:9200" ];
+              index = "ngrok-logs-%Y.%m.%d";
+              
+              auth = {
+                strategy = "basic";
+                user = "vector";
+                password = "${config.age.secrets.elasticsearch-password.path}";
+              };
+            };
+            
+            # Also send to local files for backup
+            local_files = {
+              type = "file";
+              inputs = [ "enrich_logs" ];
+              path = "/var/log/ngrok/ngrok-%Y-%m-%d.log";
+              encoding = {
+                codec = "json";
+              };
+            };
+          };
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Loki + Promtail">
+    ```nix title="logging/loki.nix"
+    {
+      services.loki = {
+        enable = true;
+        configuration = {
+          server.http_listen_port = 3100;
+          
+          auth_enabled = false;
+          
+          ingester = {
+            lifecycler = {
+              address = "127.0.0.1";
+              ring = {
+                kvstore.store = "inmemory";
+                replication_factor = 1;
+              };
+            };
+          };
+          
+          schema_config = {
+            configs = [
+              {
+                from = "2023-01-01";
+                store = "boltdb-shipper";
+                object_store = "filesystem";
+                schema = "v11";
+                index = {
+                  prefix = "index_";
+                  period = "24h";
+                };
+              }
+            ];
+          };
+          
+          storage_config = {
+            boltdb_shipper = {
+              active_index_directory = "/var/lib/loki/index";
+              cache_location = "/var/lib/loki/cache";
+            };
+            
+            filesystem = {
+              directory = "/var/lib/loki/chunks";
+            };
+          };
+        };
+      };
+      
+      services.promtail = {
+        enable = true;
+        configuration = {
+          server = {
+            http_listen_port = 9080;
+            grpc_listen_port = 0;
+          };
+          
+          clients = [
+            { url = "http://localhost:3100/loki/api/v1/push"; }
+          ];
+          
+          scrape_configs = [
+            {
+              job_name = "ngrok";
+              static_configs = [
+                {
+                  targets = [ "localhost" ];
+                  labels = {
+                    job = "ngrok";
+                    environment = "production";
+                    __path__ = "/var/log/ngrok/*.log";
+                  };
+                }
+              ];
+              
+              pipeline_stages = [
+                {
+                  json = {
+                    expressions = {
+                      level = "level";
+                      component = "component";
+                      message = "message";
+                    };
+                  };
+                }
+                {
+                  labels = {
+                    level = "";
+                    component = "";
+                  };
+                }
+              ];
+            }
+          ];
+        };
+      };
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## High Availability
+
+### Load Balancer Configuration
+
+```nix title="ha/load-balancer.nix"
+{
+  services.nginx = {
+    enable = true;
+    
+    # SSL configuration
+    sslCertificates = {
+      "mycompany.com" = {
+        directory = "/var/lib/acme/mycompany.com";
+      };
+    };
+    
+    virtualHosts = {
+      # Load balancer for web application
+      "app.mycompany.com" = {
+        enableACME = true;
+        forceSSL = true;
+        
+        locations."/" = {
+          proxyPass = "http://ngrok-web-backend";
+          proxyWebsockets = true;
+          
+          extraConfig = ''
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Health check
+            proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 5s;
+            proxy_read_timeout 5s;
+          '';
+        };
+      };
+      
+      # Load balancer for API
+      "api.mycompany.com" = {
+        enableACME = true;
+        forceSSL = true;
+        
+        locations."/" = {
+          proxyPass = "http://ngrok-api-backend";
+          
+          extraConfig = ''
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Rate limiting
+            limit_req zone=api burst=20 nodelay;
+            
+            # API-specific timeouts
+            proxy_connect_timeout 10s;
+            proxy_send_timeout 10s;
+            proxy_read_timeout 30s;
+          '';
+        };
+      };
+    };
+    
+    # Upstream configuration
+    upstreams = {
+      ngrok-web-backend = {
+        servers = {
+          "127.0.0.1:8080" = {
+            weight = 1;
+            max_fails = 3;
+            fail_timeout = "30s";
+          };
+          # Add more backend servers here
+          # "192.168.1.11:8080" = { weight = 1; };
+          # "192.168.1.12:8080" = { weight = 1; };
+        };
+      };
+      
+      ngrok-api-backend = {
+        servers = {
+          "127.0.0.1:3000" = {
+            weight = 1;
+            max_fails = 2;
+            fail_timeout = "20s";
+          };
+        };
+      };
+    };
+    
+    # Rate limiting
+    appendConfig = ''
+      limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+      limit_req_zone $binary_remote_addr zone=web:10m rate=50r/s;
+    '';
+  };
+}
+```
+
+## Backup and Disaster Recovery
+
+### Automated Backups
+
+```nix title="backup/restic.nix"
+{
+  services.restic.backups.production = {
+    initialize = true;
+    repository = "s3:s3.amazonaws.com/mycompany-ngrok-backups";
+    passwordFile = config.age.secrets.restic-password.path;
+    
+    environmentFile = config.age.secrets.aws-credentials.path;
+    
+    paths = [
+      "/etc/ngrok"
+      "/var/lib/ngrok"
+      "/etc/nixos"
+      "/var/lib/postgres"
+      "/var/log/ngrok"
+    ];
+    
+    exclude = [
+      "*.tmp"
+      "*.log.gz"
+      "/var/lib/postgres/pg_wal/*"
+    ];
+    
+    timerConfig = {
+      OnCalendar = "02:00";  # Daily at 2 AM
+      Persistent = true;
+    };
+    
+    pruneOpts = [
+      "--keep-daily 7"
+      "--keep-weekly 4"
+      "--keep-monthly 12"
+      "--keep-yearly 2"
+    ];
+  };
+  
+  # Database backup
+  services.postgresqlBackup = {
+    enable = true;
+    databases = [ "webapp_prod" "api_prod" ];
+    startAt = "01:30";
+    location = "/var/backup/postgresql";
+    compression = "gzip";
+  };
+}
+```
+
+### Disaster Recovery Plan
+
+<Steps>
+1. **Immediate Response** <Badge text="< 5 minutes" variant="caution" />
+   
+   - Check service status: `systemctl status ngrok-*`
+   - Review recent logs: `journalctl -u ngrok-* --since "10 minutes ago"`
+   - Test tunnel connectivity: `curl -I https://app.mycompany.com`
+
+2. **Service Recovery** <Badge text="< 15 minutes" variant="warning" />
+   
+   ```bash
+   # Restart failed services
+   sudo systemctl restart ngrok-production-web
+   
+   # Check configuration
+   sudo nixos-rebuild dry-build
+   
+   # Apply last known good configuration
+   sudo nixos-rebuild switch --rollback
+   ```
+
+3. **Full System Recovery** <Badge text="< 30 minutes" variant="note" />
+   
+   ```bash
+   # Restore from backup
+   restic -r s3:s3.amazonaws.com/mycompany-ngrok-backups restore latest --target /
+   
+   # Rebuild system
+   sudo nixos-rebuild switch
+   
+   # Verify all services
+   systemctl status ngrok-* web-app api-service
+   ```
+
+4. **Post-Recovery Verification** <Badge text="< 10 minutes" variant="success" />
+   
+   - Test all tunnel endpoints
+   - Verify authentication flows
+   - Check monitoring dashboards
+   - Run health checks
+</Steps>
+
+## Operational Procedures
+
+### Deployment Process
+
+<Steps>
+1. **Pre-deployment Checks**
+   
+   ```bash
+   # Test configuration
+   nix build .#nixosConfigurations.production.config.system.build.toplevel
+   
+   # Run security scan
+   nix run nixpkgs#vulnix -- -S /run/current-system
+   
+   # Backup current state
+   restic -r $BACKUP_REPO backup /etc/nixos
+   ```
+
+2. **Deployment**
+   
+   ```bash
+   # Deploy with rollback capability
+   sudo nixos-rebuild switch --upgrade
+   
+   # Wait for services to stabilize
+   sleep 30
+   
+   # Verify deployment
+   systemctl status ngrok-*
+   ```
+
+3. **Post-deployment Verification**
+   
+   ```bash
+   # Health check script
+   ./scripts/health-check.sh
+   
+   # Monitor for 5 minutes
+   watch -n 10 'systemctl status ngrok-* | grep Active'
+   ```
+
+4. **Rollback if Needed**
+   
+   ```bash
+   # Quick rollback
+   sudo nixos-rebuild switch --rollback
+   ```
+</Steps>
+
+### Maintenance Windows
+
+```nix title="maintenance/scheduled.nix"
+{
+  # Scheduled maintenance tasks
+  systemd.services.ngrok-maintenance = {
+    description = "ngrok Maintenance Tasks";
+    script = ''
+      # Certificate renewal check
+      systemctl reload nginx
+      
+      # Log rotation
+      journalctl --vacuum-time=30d
+      
+      # Update tunnel status
+      systemctl status ngrok-* | logger -t ngrok-maintenance
+      
+      # Health check
+      curl -f https://app.mycompany.com/health || exit 1
+    '';
+    
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+    };
+  };
+  
+  systemd.timers.ngrok-maintenance = {
+    description = "Run ngrok maintenance tasks";
+    wantedBy = [ "timers.target" ];
+    
+    timerConfig = {
+      OnCalendar = "Sun 03:00";  # Weekly on Sunday at 3 AM
+      Persistent = true;
+      RandomizedDelaySec = "30min";
+    };
+  };
+}
+```
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard
+    title="Monitoring Guide"
+    description="Set up comprehensive monitoring and alerting"
+    href="/deployment/monitoring/"
+  />
+  <LinkCard
+    title="Security Hardening"
+    description="Advanced security configuration"
+    href="/deployment/security/"
+  />
+  <LinkCard
+    title="Troubleshooting"
+    description="Common issues and solutions"
+    href="/deployment/troubleshooting/"
+  />
+  <LinkCard
+    title="Performance Tuning"
+    description="Optimize for high-traffic production use"
+    href="/config/performance/"
+  />
+</CardGrid>
+
+---
+
+This production setup provides enterprise-grade security, monitoring, and operational procedures for running ngrok tunnels at scale.

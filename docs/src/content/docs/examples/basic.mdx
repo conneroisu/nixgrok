@@ -1,0 +1,708 @@
+---
+title: Basic Setup Examples
+description: Simple ngrok configurations for common use cases
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Basic Setup Examples
+
+This page provides ready-to-use examples for common ngrok deployment scenarios. Each example includes complete NixOS configuration and usage instructions.
+
+## Simple Web Server
+
+Expose a basic web server with minimal configuration:
+
+<Tabs>
+  <TabItem label="Configuration">
+    ```nix title="configuration.nix"
+    { config, pkgs, ... }:
+    {
+      # Enable unfree packages
+      nixpkgs.config.allowUnfree = true;
+      
+      # ngrok configuration
+      services.ngrok = {
+        enable = true;
+        authToken = "your-ngrok-auth-token";
+        
+        tunnels.web = {
+          protocol = "http";
+          port = 8080;
+        };
+      };
+      
+      # Simple Python web server for testing
+      systemd.services.web-server = {
+        enable = true;
+        description = "Simple web server";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+        serviceConfig = {
+          Type = "simple";
+          User = "nobody";
+          ExecStart = "${pkgs.python3}/bin/python3 -m http.server 8080";
+          Restart = "always";
+          RestartSec = "5";
+        };
+      };
+      
+      # Open firewall port
+      networking.firewall.allowedTCPPorts = [ 8080 ];
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Usage">
+    ```bash
+    # Apply configuration
+    sudo nixos-rebuild switch
+    
+    # Check services
+    systemctl status ngrok-web
+    systemctl status web-server
+    
+    # Get tunnel URL
+    journalctl -u ngrok-web | grep "started tunnel"
+    # Output: started tunnel: https://abc123.ngrok-free.app -> http://localhost:8080
+    
+    # Test the tunnel
+    curl https://abc123.ngrok-free.app
+    ```
+  </TabItem>
+  
+  <TabItem label="Flake Version">
+    ```nix title="flake.nix"
+    {
+      inputs = {
+        nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+        ngrok-nixos.url = "github:yourusername/nixgrok";
+      };
+
+      outputs = { nixpkgs, ngrok-nixos, ... }: {
+        nixosConfigurations.basic-web = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ngrok-nixos.nixosModules.default
+            ({ config, pkgs, ... }: {
+              nixpkgs.config.allowUnfree = true;
+              
+              services.ngrok = {
+                enable = true;
+                authToken = "your-token";
+                tunnels.web = {
+                  protocol = "http";
+                  port = 8080;
+                };
+              };
+              
+              # Include web server from above...
+            })
+          ];
+        };
+      };
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Development Environment
+
+Perfect for exposing local development servers:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-dev-token";
+    region = "us";
+    metadata = "development-environment";
+    
+    tunnels = {
+      # Frontend development server (React, Vue, etc.)
+      frontend = {
+        protocol = "http";
+        port = 3000;
+        subdomain = "myapp-dev";  # Requires paid plan
+      };
+      
+      # Backend API server
+      backend = {
+        protocol = "http";
+        port = 8080;
+        subdomain = "myapp-api-dev";
+      };
+      
+      # Database for external access
+      database = {
+        protocol = "tcp";
+        port = 5432;
+      };
+    };
+  };
+  
+  # Development tools
+  environment.systemPackages = with pkgs; [
+    nodejs
+    python3
+    postgresql
+  ];
+  
+  # PostgreSQL for development
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "myapp_dev" ];
+    ensureUsers = [{
+      name = "developer";
+      ensurePermissions = {
+        "DATABASE myapp_dev" = "ALL PRIVILEGES";
+      };
+    }];
+  };
+  
+  # Open necessary ports
+  networking.firewall.allowedTCPPorts = [ 3000 8080 5432 ];
+}
+```
+
+**Usage:**
+```bash
+# Start your development servers
+npm run dev          # Frontend on :3000
+python manage.py runserver 0.0.0.0:8080  # Backend on :8080
+
+# Tunnels will be available at:
+# https://myapp-dev.ngrok.io -> :3000
+# https://myapp-api-dev.ngrok.io -> :8080
+# tcp://0.tcp.ngrok.io:12345 -> :5432
+```
+
+## Static Website Hosting
+
+Serve static files with nginx:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    
+    tunnels.website = {
+      protocol = "https";
+      port = 80;
+      subdomain = "mysite";
+      bind_tls = "true";  # HTTPS only
+      compression = true;  # Enable gzip
+    };
+  };
+  
+  # Nginx web server
+  services.nginx = {
+    enable = true;
+    
+    virtualHosts."localhost" = {
+      root = "/var/www/html";
+      locations."~* \\.(js|css|png|jpg|jpeg|gif|ico|svg)$" = {
+        extraConfig = "expires 1y; add_header Cache-Control public;";
+      };
+    };
+  };
+  
+  # Create web content directory
+  systemd.tmpfiles.rules = [
+    "d /var/www/html 0755 nginx nginx -"
+  ];
+  
+  # Sample content
+  environment.etc."nginx/html/index.html" = {
+    text = ''
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>My Static Site</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 40px; }
+              h1 { color: #333; }
+          </style>
+      </head>
+      <body>
+          <h1>Welcome to My Site!</h1>
+          <p>This static site is hosted via nginx and exposed through ngrok.</p>
+          <p>The tunnel is secured with HTTPS and compression enabled.</p>
+      </body>
+      </html>
+    '';
+    target = "var/www/html/index.html";
+  };
+  
+  networking.firewall.allowedTCPPorts = [ 80 443 ];
+}
+```
+
+## API Development
+
+Expose a REST API with authentication:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    
+    tunnels.api = {
+      protocol = "https";
+      port = 8000;
+      subdomain = "myapi";
+      
+      # Basic authentication
+      auth = "api:secretkey123";
+      
+      # Security headers
+      response_header_add = {
+        "X-API-Version" = "v1.0";
+        "X-Content-Type-Options" = "nosniff";
+        "Access-Control-Allow-Origin" = "*";
+      };
+      
+      # Enable compression for JSON responses
+      compression = true;
+    };
+  };
+  
+  # Simple Python API server
+  systemd.services.api-server = {
+    enable = true;
+    description = "Python API Server";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network.target" ];
+    
+    serviceConfig = {
+      Type = "simple";
+      User = "api";
+      Group = "api";
+      ExecStart = ''${pkgs.python3.withPackages (ps: [ ps.flask ])}/bin/python ${./api-server.py}'';
+      Restart = "always";
+      RestartSec = "5";
+      Environment = "PORT=8000";
+    };
+  };
+  
+  # Create API user
+  users.users.api = {
+    isSystemUser = true;
+    group = "api";
+  };
+  users.groups.api = {};
+  
+  networking.firewall.allowedTCPPorts = [ 8000 ];
+}
+```
+
+**api-server.py:**
+```python
+from flask import Flask, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return jsonify({
+        "message": "Hello from ngrok!",
+        "status": "ok",
+        "version": "1.0"
+    })
+
+@app.route('/users')
+def users():
+    return jsonify({
+        "users": [
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Bob"}
+        ]
+    })
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+```
+
+**Usage:**
+```bash
+# Test with authentication
+curl -u api:secretkey123 https://myapi.ngrok.io/
+
+# Test API endpoints
+curl -u api:secretkey123 https://myapi.ngrok.io/users
+```
+
+## SSH Access
+
+Secure remote SSH access through ngrok:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    
+    tunnels.ssh = {
+      protocol = "tcp";
+      port = 22;
+      # Will get a random TCP address like 0.tcp.ngrok.io:12345
+    };
+  };
+  
+  # Enable SSH daemon
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;  # Key-based auth only
+      PermitRootLogin = "no";
+      X11Forwarding = false;
+    };
+  };
+  
+  # Create a user for SSH access
+  users.users.remote = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" ];  # sudo access
+    openssh.authorizedKeys.keys = [
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQ... your-public-key"
+    ];
+  };
+  
+  networking.firewall.allowedTCPPorts = [ 22 ];
+}
+```
+
+**Usage:**
+```bash
+# Get the TCP tunnel address
+journalctl -u ngrok-ssh | grep "started tunnel"
+# Output: started tunnel: tcp://0.tcp.ngrok.io:12345 -> localhost:22
+
+# Connect via SSH
+ssh -p 12345 remote@0.tcp.ngrok.io
+```
+
+## Multiple Services
+
+Run several services simultaneously:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    region = "us";
+    
+    tunnels = {
+      # Main web application
+      web = {
+        protocol = "https";
+        port = 8080;
+        subdomain = "myapp";
+        compression = true;
+      };
+      
+      # Admin interface
+      admin = {
+        protocol = "https";
+        port = 8081;
+        subdomain = "myapp-admin";
+        auth = "admin:secure-password";
+      };
+      
+      # WebSocket service
+      websocket = {
+        protocol = "http";
+        port = 8082;
+        subdomain = "myapp-ws";
+        websocket_tcp_converter = true;
+      };
+      
+      # Database access
+      database = {
+        protocol = "tcp";
+        port = 5432;
+      };
+      
+      # SSH for maintenance
+      ssh = {
+        protocol = "tcp";
+        port = 22;
+      };
+    };
+  };
+  
+  # Web application (example with Node.js)
+  systemd.services.web-app = {
+    enable = true;
+    description = "Web Application";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "webapp";
+      ExecStart = "${pkgs.nodejs}/bin/node /var/lib/webapp/server.js";
+      Environment = "PORT=8080";
+      Restart = "always";
+    };
+  };
+  
+  # Admin interface
+  systemd.services.admin-interface = {
+    enable = true;
+    description = "Admin Interface";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "webapp";
+      ExecStart = "${pkgs.nodejs}/bin/node /var/lib/webapp/admin.js";
+      Environment = "PORT=8081";
+      Restart = "always";
+    };
+  };
+  
+  # WebSocket service
+  systemd.services.websocket-service = {
+    enable = true;
+    description = "WebSocket Service";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "webapp";
+      ExecStart = "${pkgs.nodejs}/bin/node /var/lib/webapp/websocket.js";
+      Environment = "PORT=8082";
+      Restart = "always";
+    };
+  };
+  
+  # PostgreSQL database
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "myapp" ];
+  };
+  
+  # SSH access
+  services.openssh.enable = true;
+  
+  # Create webapp user
+  users.users.webapp = {
+    isSystemUser = true;
+    group = "webapp";
+    home = "/var/lib/webapp";
+    createHome = true;
+  };
+  users.groups.webapp = {};
+  
+  networking.firewall.allowedTCPPorts = [ 22 5432 8080 8081 8082 ];
+}
+```
+
+## Testing Environment
+
+Great for CI/CD and automated testing:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+{
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    metadata = "testing-environment";
+    
+    tunnels = {
+      # Application under test
+      app = {
+        protocol = "http";
+        port = 3000;
+        subdomain = "test-app";
+        
+        # Add testing headers
+        request_header_add = {
+          "X-Test-Environment" = "true";
+          "X-Build-Number" = "$BUILD_NUMBER";
+        };
+        
+        # Disable inspection for performance
+        inspect = false;
+      };
+      
+      # Mock external services
+      mock-api = {
+        protocol = "http";
+        port = 8080;
+        subdomain = "mock-api";
+      };
+    };
+  };
+  
+  # Test application
+  systemd.services.test-app = {
+    enable = true;
+    description = "Application Under Test";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "tester";
+      ExecStart = "${pkgs.nodejs}/bin/node /var/lib/test-app/server.js";
+      Environment = [
+        "NODE_ENV=test"
+        "PORT=3000"
+        "MOCK_API_URL=https://mock-api.ngrok.io"
+      ];
+      Restart = "always";
+    };
+  };
+  
+  # Mock API service
+  systemd.services.mock-api = {
+    enable = true;
+    description = "Mock API Service";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "tester";
+      ExecStart = "${pkgs.python3.withPackages (ps: [ ps.flask ])}/bin/python /var/lib/mock-api/server.py";
+      Environment = "PORT=8080";
+      Restart = "always";
+    };
+  };
+  
+  # Create tester user
+  users.users.tester = {
+    isSystemUser = true;
+    group = "tester";
+    home = "/var/lib/tester";
+    createHome = true;
+  };
+  users.groups.tester = {};
+  
+  networking.firewall.allowedTCPPorts = [ 3000 8080 ];
+}
+```
+
+## Quick Start Templates
+
+Use these commands to quickly create new projects:
+
+<CardGrid>
+  <Card title="Basic Web Server" icon="rocket">
+    ```bash
+    nix flake init -t github:yourusername/nixgrok#basic
+    vim configuration.nix  # Add your auth token
+    sudo nixos-rebuild switch
+    ```
+  </Card>
+  
+  <Card title="Development Environment" icon="code">
+    ```bash
+    nix flake init -t github:yourusername/nixgrok#dev
+    # Includes frontend, backend, and database tunnels
+    ```
+  </Card>
+  
+  <Card title="API Server" icon="external">
+    ```bash
+    nix flake init -t github:yourusername/nixgrok#api
+    # Includes authentication and CORS headers
+    ```
+  </Card>
+  
+  <Card title="Multi-Service" icon="puzzle">
+    ```bash
+    nix flake init -t github:yourusername/nixgrok#multi
+    # Multiple services with different protocols
+    ```
+  </Card>
+</CardGrid>
+
+## Troubleshooting Common Issues
+
+### Service Won't Start
+
+```bash
+# Check service status
+systemctl status ngrok-web
+
+# View logs
+journalctl -u ngrok-web -f
+
+# Common issues:
+# - Invalid auth token
+# - Port already in use
+# - Network connectivity
+```
+
+### Can't Access Tunnel
+
+```bash
+# Check if local service is running
+curl http://localhost:8080
+
+# Check firewall
+sudo iptables -L | grep 8080
+
+# Test ngrok tunnel
+curl -I https://your-tunnel.ngrok.app
+```
+
+### Performance Issues
+
+```nix
+# Disable inspection for better performance
+services.ngrok.tunnels.high-traffic = {
+  protocol = "http";
+  port = 8080;
+  inspect = false;
+  compression = true;
+};
+```
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Advanced Features" icon="rocket">
+    Learn about OAuth, OIDC, and security features
+    
+    [Advanced Configuration →](/config/advanced/)
+  </Card>
+  
+  <Card title="Security" icon="shield">
+    Add authentication and security hardening
+    
+    [Security Configuration →](/config/security/)
+  </Card>
+  
+  <Card title="Production" icon="approve-check">
+    Deploy to production with monitoring
+    
+    [Production Setup →](/deployment/production/)
+  </Card>
+  
+  <Card title="Enterprise" icon="building">
+    Enterprise-grade configurations
+    
+    [Enterprise Examples →](/examples/enterprise/)
+  </Card>
+</CardGrid>
+
+These basic examples provide a solid foundation for most ngrok use cases. Customize them based on your specific requirements and explore the advanced features as needed.

@@ -1,0 +1,597 @@
+---
+title: OAuth Integration
+description: Secure your tunnels with OAuth authentication from Google, GitHub, Microsoft, and Facebook
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# OAuth Integration
+
+Secure your ngrok tunnels with OAuth authentication from major providers. This guide covers setup and configuration for Google, GitHub, Microsoft, and Facebook OAuth.
+
+## Overview
+
+OAuth integration allows you to:
+- **Restrict Access**: Only authenticated users can access your tunnels
+- **Domain Control**: Limit access to specific email domains
+- **Email Allowlists**: Restrict to specific email addresses
+- **Scope Management**: Request only necessary permissions
+- **Enterprise Integration**: Use existing identity providers
+
+## Supported Providers
+
+<CardGrid>
+  <Card title="Google OAuth" icon="external">
+    Google Workspace integration with domain restrictions
+  </Card>
+  <Card title="GitHub OAuth" icon="github">
+    Developer-focused with organization support
+  </Card>
+  <Card title="Microsoft OAuth" icon="external">
+    Azure AD and Office 365 integration
+  </Card>
+  <Card title="Facebook OAuth" icon="external">
+    Social login for marketing and user-facing tools
+  </Card>
+</CardGrid>
+
+## Configuration Structure
+
+OAuth is configured per tunnel in the `oauth` section:
+
+```nix
+services.ngrok.tunnels.my-tunnel = {
+  protocol = "https";
+  port = 8080;
+  
+  oauth = {
+    provider = "google";              # Provider name
+    allow_domains = [ "company.com" ]; # Domain restrictions
+    allow_emails = [ "user@company.com" ]; # Email allowlist
+    scopes = [ "openid" "email" ];    # OAuth scopes
+  };
+};
+```
+
+## Provider Setup
+
+### Google OAuth
+
+<Tabs>
+  <TabItem label="Configuration">
+    ```nix
+    services.ngrok.tunnels.admin-panel = {
+      protocol = "https";
+      port = 8080;
+      
+      oauth = {
+        provider = "google";
+        allow_domains = [ "mycompany.com" "partner.com" ];
+        scopes = [ "openid" "email" "profile" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Google Console Setup">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create or select a project
+    3. Enable the Google+ API
+    4. Go to **Credentials** → **Create credentials** → **OAuth client ID**
+    5. Set application type to **Web application**
+    6. Add authorized redirect URIs:
+       - `https://your-tunnel.ngrok.app/oauth/callback`
+       - `https://your-custom-domain.com/oauth/callback`
+    7. Note the Client ID and Client Secret (not needed for ngrok)
+  </TabItem>
+  
+  <TabItem label="Use Cases">
+    - **Admin Panels**: Restrict to company Google Workspace accounts
+    - **Internal Tools**: Use existing Google authentication
+    - **Contractor Access**: Allow specific partner domains
+    - **Executive Dashboards**: Limit to C-level email addresses
+  </TabItem>
+</Tabs>
+
+**Available Scopes**:
+- `openid`: Basic OpenID Connect
+- `email`: User's email address
+- `profile`: Basic profile information
+
+### GitHub OAuth
+
+<Tabs>
+  <TabItem label="Configuration">
+    ```nix
+    services.ngrok.tunnels.dev-tools = {
+      protocol = "https";
+      port = 3000;
+      
+      oauth = {
+        provider = "github";
+        allow_emails = [
+          "developer@mycompany.com"
+          "lead@mycompany.com"
+          "devops@mycompany.com"
+        ];
+        scopes = [ "user:email" "read:org" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="GitHub App Setup">
+    1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+    2. Click **New OAuth App**
+    3. Fill in application details:
+       - **Application name**: Your app name
+       - **Homepage URL**: Your website
+       - **Authorization callback URL**: `https://your-tunnel.ngrok.app/oauth/callback`
+    4. Click **Register application**
+    5. Note the Client ID and Client Secret (not needed for ngrok)
+  </TabItem>
+  
+  <TabItem label="Use Cases">
+    - **Development Tools**: Restrict to team developers
+    - **CI/CD Interfaces**: Limit to DevOps team
+    - **Code Review Tools**: Organization members only
+    - **API Documentation**: Public repositories or private teams
+  </TabItem>
+</Tabs>
+
+**Available Scopes**:
+- `user:email`: User's email addresses
+- `read:user`: Basic user profile
+- `read:org`: Organization membership
+- `repo`: Repository access (use carefully)
+
+### Microsoft OAuth
+
+<Tabs>
+  <TabItem label="Configuration">
+    ```nix
+    services.ngrok.tunnels.enterprise-app = {
+      protocol = "https";
+      port = 8090;
+      
+      oauth = {
+        provider = "microsoft";
+        allow_domains = [ "mycompany.com" ];
+        scopes = [ "openid" "email" "profile" "User.Read" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Azure AD Setup">
+    1. Go to [Azure Portal](https://portal.azure.com/)
+    2. Navigate to **Azure Active Directory** → **App registrations**
+    3. Click **New registration**
+    4. Configure:
+       - **Name**: Your application name
+       - **Supported account types**: Choose appropriate option
+       - **Redirect URI**: `https://your-tunnel.ngrok.app/oauth/callback`
+    5. Click **Register**
+    6. Note the Application (client) ID
+    7. Go to **Certificates & secrets** → **New client secret**
+  </TabItem>
+  
+  <TabItem label="Use Cases">
+    - **Enterprise Applications**: Azure AD integration
+    - **Office 365 Tools**: Use existing corporate accounts
+    - **HR Systems**: Employee directory integration
+    - **Business Intelligence**: Restrict to specific departments
+  </TabItem>
+</Tabs>
+
+**Available Scopes**:
+- `openid`: Basic OpenID Connect
+- `email`: User's email address
+- `profile`: Basic profile information
+- `User.Read`: Read user profile
+- `Directory.Read.All`: Read directory data
+
+### Facebook OAuth
+
+<Tabs>
+  <TabItem label="Configuration">
+    ```nix
+    services.ngrok.tunnels.marketing-tools = {
+      protocol = "https";
+      port = 4000;
+      
+      oauth = {
+        provider = "facebook";
+        allow_emails = [
+          "marketing@mycompany.com"
+          "social@mycompany.com"
+          "community@mycompany.com"
+        ];
+        scopes = [ "email" "public_profile" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Facebook App Setup">
+    1. Go to [Facebook Developers](https://developers.facebook.com/)
+    2. Click **Create App** → **Business**
+    3. Fill in app details and create
+    4. Go to **App Settings** → **Basic**
+    5. Add **Facebook Login** product
+    6. Configure OAuth redirect URIs:
+       - `https://your-tunnel.ngrok.app/oauth/callback`
+    7. Note the App ID and App Secret
+  </TabItem>
+  
+  <TabItem label="Use Cases">
+    - **Marketing Tools**: Social media management
+    - **Community Platforms**: Public-facing applications
+    - **Analytics Dashboards**: Marketing team access
+    - **Campaign Management**: Social advertising tools
+  </TabItem>
+</Tabs>
+
+**Available Scopes**:
+- `email`: User's email address
+- `public_profile`: Basic public profile
+
+## Advanced Configuration
+
+### Multiple Providers
+
+You can run different tunnels with different OAuth providers:
+
+```nix
+services.ngrok.tunnels = {
+  admin-google = {
+    protocol = "https";
+    port = 8080;
+    oauth = {
+      provider = "google";
+      allow_domains = [ "mycompany.com" ];
+    };
+  };
+  
+  dev-github = {
+    protocol = "https";
+    port = 3000;
+    oauth = {
+      provider = "github";
+      allow_emails = [ "dev@mycompany.com" ];
+    };
+  };
+  
+  enterprise-microsoft = {
+    protocol = "https";
+    port = 8443;
+    oauth = {
+      provider = "microsoft";
+      allow_domains = [ "mycompany.com" ];
+    };
+  };
+};
+```
+
+### Domain vs Email Restrictions
+
+<Tabs>
+  <TabItem label="Domain Restrictions">
+    Allow any user from specific domains:
+    
+    ```nix
+    oauth = {
+      provider = "google";
+      allow_domains = [ 
+        "mycompany.com" 
+        "contractor.com"
+        "partner.org"
+      ];
+    };
+    ```
+    
+    **Use when**: You trust the entire domain/organization
+  </TabItem>
+  
+  <TabItem label="Email Allowlists">
+    Allow only specific email addresses:
+    
+    ```nix
+    oauth = {
+      provider = "github";
+      allow_emails = [
+        "alice@mycompany.com"
+        "bob@contractor.com"
+        "carol@partner.org"
+      ];
+    };
+    ```
+    
+    **Use when**: You need granular control over access
+  </TabItem>
+  
+  <TabItem label="Combined">
+    You can use both (user must match either):
+    
+    ```nix
+    oauth = {
+      provider = "google";
+      allow_domains = [ "mycompany.com" ];
+      allow_emails = [ "contractor@external.com" ];
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### Custom Scopes
+
+Request minimal scopes for better security:
+
+```nix
+# Minimal scopes - just email
+oauth = {
+  provider = "google";
+  allow_domains = [ "mycompany.com" ];
+  scopes = [ "openid" "email" ]; # Don't request profile if not needed
+};
+
+# Extended scopes for advanced features
+oauth = {
+  provider = "github";
+  allow_emails = [ "dev@mycompany.com" ];
+  scopes = [ "user:email" "read:org" ]; # Include org membership
+};
+```
+
+## User Experience
+
+### Authentication Flow
+
+1. **User visits tunnel URL**
+2. **Redirected to OAuth provider** (Google, GitHub, etc.)
+3. **User authenticates** with their account
+4. **Provider redirects back** to ngrok
+5. **ngrok validates** domain/email restrictions
+6. **Access granted** to the tunnel
+
+### User Information Headers
+
+ngrok adds headers with user information to requests:
+
+```
+ngrok-auth-user-email: user@mycompany.com
+ngrok-auth-user-name: John Doe
+ngrok-auth-user-login: johndoe (GitHub only)
+```
+
+Your application can use these headers:
+
+```python
+# Python Flask example
+@app.route('/')
+def dashboard():
+    user_email = request.headers.get('ngrok-auth-user-email')
+    user_name = request.headers.get('ngrok-auth-user-name')
+    
+    return f"Welcome {user_name} ({user_email})"
+```
+
+## Security Best Practices
+
+### Minimal Scope Principle
+```nix
+# ❌ Don't request unnecessary scopes
+scopes = [ "openid" "email" "profile" "read:org" "repo" ];
+
+# ✅ Request only what you need
+scopes = [ "openid" "email" ];
+```
+
+### Domain Restrictions
+```nix
+# ❌ Too permissive
+oauth = {
+  provider = "google";
+  # No restrictions - anyone with Google account can access
+};
+
+# ✅ Restrict to your organization
+oauth = {
+  provider = "google";
+  allow_domains = [ "mycompany.com" ];
+};
+```
+
+### Email Allowlists for Sensitive Data
+```nix
+# For highly sensitive applications
+oauth = {
+  provider = "google";
+  allow_emails = [
+    "ceo@mycompany.com"
+    "cto@mycompany.com"
+    "security@mycompany.com"
+  ];
+};
+```
+
+### Combined with Other Security
+```nix
+# Layer OAuth with other security measures
+services.ngrok.tunnels.secure-admin = {
+  protocol = "https";
+  port = 8443;
+  
+  # OAuth authentication
+  oauth = {
+    provider = "google";
+    allow_domains = [ "mycompany.com" ];
+  };
+  
+  # IP restrictions
+  ip_restriction_allow_cidrs = [ "10.0.0.0/8" ];
+  
+  # Security headers
+  response_header_add = {
+    "X-Frame-Options" = "DENY";
+    "Strict-Transport-Security" = "max-age=31536000";
+  };
+  
+  # Circuit breaker
+  circuit_breaker = 0.1;
+};
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<CardGrid>
+  <Card title="Authentication Loop" icon="error">
+    **Symptoms**: Redirects back to OAuth provider repeatedly
+    
+    **Causes**:
+    - Email/domain not in allowlist
+    - Incorrect OAuth app configuration
+    - Clock synchronization issues
+    
+    **Solutions**:
+    - Check allowlist configuration
+    - Verify OAuth app redirect URIs
+    - Sync system clock
+  </Card>
+  
+  <Card title="Access Denied" icon="warning">
+    **Symptoms**: "Access denied" after OAuth login
+    
+    **Causes**:
+    - User email not in allowlist
+    - Domain restriction mismatch
+    - Insufficient OAuth scopes
+    
+    **Solutions**:
+    - Add user to allowlist
+    - Check domain configuration
+    - Review required scopes
+  </Card>
+  
+  <Card title="Provider Errors" icon="shield">
+    **Symptoms**: OAuth provider returns errors
+    
+    **Causes**:
+    - Invalid OAuth app configuration
+    - Redirect URI mismatch
+    - App not approved/published
+    
+    **Solutions**:
+    - Check OAuth app settings
+    - Verify redirect URIs match
+    - Publish OAuth app if required
+  </Card>
+</CardGrid>
+
+### Debug Steps
+
+1. **Check ngrok logs**:
+   ```bash
+   journalctl -u ngrok-your-tunnel -f
+   ```
+
+2. **Verify OAuth configuration**:
+   ```bash
+   sudo cat /etc/ngrok/ngrok.yml
+   ```
+
+3. **Test with curl**:
+   ```bash
+   curl -I https://your-tunnel.ngrok.app/
+   # Should return 302 redirect to OAuth provider
+   ```
+
+4. **Check user headers** in your application logs
+
+## Examples
+
+### Company Admin Panel
+```nix
+services.ngrok.tunnels.admin = {
+  protocol = "https";
+  port = 8080;
+  subdomain = "company-admin";
+  
+  oauth = {
+    provider = "google";
+    allow_domains = [ "mycompany.com" ];
+    scopes = [ "openid" "email" "profile" ];
+  };
+  
+  response_header_add = {
+    "X-Frame-Options" = "DENY";
+    "X-Auth-Required" = "oauth";
+  };
+};
+```
+
+### Developer Tools
+```nix
+services.ngrok.tunnels.dev-tools = {
+  protocol = "https";
+  port = 3000;
+  subdomain = "dev-tools";
+  
+  oauth = {
+    provider = "github";
+    allow_emails = [
+      "alice@mycompany.com"
+      "bob@mycompany.com"
+      "contractor@external.com"
+    ];
+    scopes = [ "user:email" ];
+  };
+  
+  compression = true;
+  websocket_tcp_converter = true;
+};
+```
+
+### Multi-Provider Setup
+```nix
+services.ngrok.tunnels = {
+  # Executives use Google Workspace
+  executive-dashboard = {
+    protocol = "https";
+    port = 8443;
+    oauth = {
+      provider = "google";
+      allow_emails = [ "ceo@mycompany.com" "cfo@mycompany.com" ];
+    };
+  };
+  
+  # Developers use GitHub
+  dev-environment = {
+    protocol = "https";
+    port = 3000;
+    oauth = {
+      provider = "github";
+      allow_emails = [ "dev@mycompany.com" ];
+    };
+  };
+  
+  # Marketing uses Facebook for social tools
+  social-dashboard = {
+    protocol = "https";
+    port = 4000;
+    oauth = {
+      provider = "facebook";
+      allow_emails = [ "marketing@mycompany.com" ];
+    };
+  };
+};
+```
+
+## Next Steps
+
+- [OIDC Support](/auth/oidc/) for custom identity providers
+- [Webhook Verification](/auth/webhooks/) for API endpoints
+- [Mutual TLS](/auth/mtls/) for certificate-based authentication
+- [Security Configuration](/config/security/) for additional hardening

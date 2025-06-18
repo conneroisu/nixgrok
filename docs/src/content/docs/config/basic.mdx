@@ -1,0 +1,487 @@
+---
+title: Basic Configuration
+description: Learn the fundamentals of configuring the ngrok NixOS service
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Basic Configuration
+
+This guide covers the fundamental configuration options for the ngrok NixOS service, from simple HTTP tunnels to multi-service setups.
+
+## Configuration Structure
+
+The ngrok service configuration follows this basic structure:
+
+```nix
+services.ngrok = {
+  # Global service settings
+  enable = true;
+  authToken = "your-auth-token";
+  region = "us";
+  
+  # Individual tunnel configurations
+  tunnels = {
+    tunnel-name = {
+      protocol = "http";
+      port = 8080;
+      # Additional tunnel options...
+    };
+  };
+};
+```
+
+## Global Configuration
+
+### Essential Settings
+
+<Tabs>
+  <TabItem label="Required">
+    ```nix
+    services.ngrok = {
+      enable = true;                              # Enable the service
+      authToken = "2abc123def456ghi789jkl";       # Your ngrok auth token
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Recommended">
+    ```nix
+    services.ngrok = {
+      enable = true;
+      authToken = "2abc123def456ghi789jkl";
+      region = "us";                             # Choose closest region
+      metadata = "production-server-v1.0";       # Identify this instance
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Advanced">
+    ```nix
+    services.ngrok = {
+      enable = true;
+      authToken = "2abc123def456ghi789jkl";
+      region = "eu";                             # European region
+      metadata = "prod-eu-1";
+      user = "ngrok";                            # Service user (default)
+      group = "ngrok";                           # Service group (default)
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### Regional Settings
+
+Choose the region closest to your users for optimal performance:
+
+```nix
+services.ngrok.region = "us";  # United States (default)
+# Available regions:
+# "us" - United States
+# "eu" - Europe
+# "au" - Australia  
+# "ap" - Asia/Pacific
+# "sa" - South America
+# "jp" - Japan
+# "in" - India
+```
+
+<Card title="💡 Performance Tip" icon="information">
+  Choose the region closest to your users, not your server. ngrok's global network will route traffic efficiently.
+</Card>
+
+## Tunnel Configuration
+
+### Basic HTTP Tunnel
+
+The simplest configuration exposes an HTTP service:
+
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  
+  tunnels.web = {
+    protocol = "http";
+    port = 8080;              # Local port to expose
+  };
+};
+```
+
+This creates a tunnel at a random ngrok URL like `https://abc123.ngrok-free.app`.
+
+### HTTPS Tunnel
+
+For secure connections:
+
+```nix
+services.ngrok.tunnels.secure-web = {
+  protocol = "https";
+  port = 443;
+  bind_tls = "true";         # Enforce HTTPS only
+};
+```
+
+### Custom Subdomains
+
+Use custom subdomains (requires paid plan):
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "http";
+  port = 3000;
+  subdomain = "myapp-api";   # Creates myapp-api.ngrok.io
+};
+```
+
+### Custom Domains
+
+Use your own domain (requires paid plan and DNS setup):
+
+```nix
+services.ngrok.tunnels.production = {
+  protocol = "https";
+  port = 80;
+  hostname = "api.mycompany.com";  # Your custom domain
+};
+```
+
+## Multiple Tunnels
+
+Run multiple tunnels simultaneously:
+
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  
+  tunnels = {
+    # Web application
+    web = {
+      protocol = "http";
+      port = 8080;
+      subdomain = "myapp";
+    };
+    
+    # API service
+    api = {
+      protocol = "https";
+      port = 3000;
+      subdomain = "myapp-api";
+    };
+    
+    # Database access (TCP)
+    database = {
+      protocol = "tcp";
+      port = 5432;
+    };
+    
+    # SSH access
+    ssh = {
+      protocol = "tcp";
+      port = 22;
+    };
+  };
+};
+```
+
+Each tunnel runs as a separate systemd service:
+- `ngrok-web.service`
+- `ngrok-api.service`
+- `ngrok-database.service`
+- `ngrok-ssh.service`
+
+## Protocol Types
+
+### HTTP/HTTPS Tunnels
+
+<Tabs>
+  <TabItem label="HTTP">
+    ```nix
+    tunnels.web = {
+      protocol = "http";
+      port = 8080;
+      bind_tls = "both";       # Allow both HTTP and HTTPS
+    };
+    ```
+    
+    **Use for**: Web applications, APIs, development servers
+  </TabItem>
+  
+  <TabItem label="HTTPS Only">
+    ```nix
+    tunnels.secure = {
+      protocol = "https";
+      port = 443;
+      bind_tls = "true";       # HTTPS only
+    };
+    ```
+    
+    **Use for**: Production web apps, secure APIs
+  </TabItem>
+  
+  <TabItem label="Flexible">
+    ```nix
+    tunnels.flexible = {
+      protocol = "http";
+      port = 8080;
+      bind_tls = "both";       # Accept both protocols
+    };
+    ```
+    
+    **Use for**: Testing, mixed environments
+  </TabItem>
+</Tabs>
+
+### TCP Tunnels
+
+```nix
+tunnels.database = {
+  protocol = "tcp";
+  port = 5432;
+  remote_addr = "0.0.0.0:5432";  # Optional: bind to specific address
+};
+```
+
+**Use for**: Databases, SSH, custom protocols, game servers
+
+### TLS Tunnels
+
+```nix
+tunnels.secure-tcp = {
+  protocol = "tls";
+  port = 8443;
+  crt = "/etc/ssl/certs/server.crt";    # Your certificate
+  key = "/etc/ssl/private/server.key";  # Your private key
+};
+```
+
+**Use for**: Secure custom protocols, encrypted databases
+
+## Common Patterns
+
+### Development Environment
+
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "dev-token";
+  
+  tunnels = {
+    # Frontend development server
+    frontend = {
+      protocol = "http";
+      port = 3000;
+      subdomain = "myapp-dev";
+    };
+    
+    # Backend API
+    backend = {
+      protocol = "http";
+      port = 8080;
+      subdomain = "myapp-api-dev";
+    };
+    
+    # Database for external testing
+    db = {
+      protocol = "tcp";
+      port = 5432;
+    };
+  };
+};
+```
+
+### Production Services
+
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "prod-token";
+  region = "us";
+  metadata = "production-v1.2";
+  
+  tunnels = {
+    # Main web application
+    web = {
+      protocol = "https";
+      port = 80;
+      hostname = "app.mycompany.com";
+      bind_tls = "true";
+    };
+    
+    # API endpoint
+    api = {
+      protocol = "https";
+      port = 8080;
+      hostname = "api.mycompany.com";
+      bind_tls = "true";
+    };
+  };
+};
+```
+
+### Microservices Architecture
+
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "microservices-token";
+  
+  tunnels = {
+    user-service = {
+      protocol = "http";
+      port = 3001;
+      subdomain = "users";
+    };
+    
+    order-service = {
+      protocol = "http";
+      port = 3002;
+      subdomain = "orders";
+    };
+    
+    payment-service = {
+      protocol = "https";
+      port = 3003;
+      subdomain = "payments";
+      bind_tls = "true";
+    };
+    
+    notification-service = {
+      protocol = "http";
+      port = 3004;
+      subdomain = "notifications";
+    };
+  };
+};
+```
+
+## Service Management
+
+### Checking Status
+
+```bash
+# Check all ngrok services
+systemctl status 'ngrok-*'
+
+# Check specific tunnel
+systemctl status ngrok-web
+
+# View service logs
+journalctl -u ngrok-web -f
+
+# Check tunnel URLs
+journalctl -u ngrok-web | grep "started tunnel"
+```
+
+### Managing Services
+
+```bash
+# Restart a tunnel
+sudo systemctl restart ngrok-web
+
+# Stop a tunnel
+sudo systemctl stop ngrok-web
+
+# Start a tunnel
+sudo systemctl start ngrok-web
+
+# Disable auto-start
+sudo systemctl disable ngrok-web
+```
+
+### Configuration Reload
+
+```bash
+# Apply configuration changes
+sudo nixos-rebuild switch
+
+# Or with flakes
+sudo nixos-rebuild switch --flake .#myhost
+```
+
+## Configuration Validation
+
+The NixOS module provides extensive validation:
+
+<CardGrid>
+  <Card title="Type Safety" icon="approve-check">
+    All options are type-checked at build time
+  </Card>
+  <Card title="Value Validation" icon="shield">
+    Enums and ranges are validated before deployment
+  </Card>
+  <Card title="Dependency Checks" icon="puzzle">
+    Required options and conflicts are detected
+  </Card>
+  <Card title="Build-time Errors" icon="error">
+    Invalid configurations fail during build, not runtime
+  </Card>
+</CardGrid>
+
+### Testing Configuration
+
+```bash
+# Test configuration without applying
+nixos-rebuild dry-build
+
+# Check ngrok config syntax
+sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml config check
+
+# Validate tunnel definitions
+nix eval .#nixosConfigurations.myhost.config.services.ngrok.tunnels
+```
+
+## Performance Considerations
+
+### Tunnel Limits
+
+- **Free Plan**: 1 tunnel at a time
+- **Paid Plans**: Multiple tunnels (check your plan limits)
+- **Performance**: Each tunnel adds minimal overhead
+
+### Resource Usage
+
+```nix
+# Monitor resource usage
+systemd.services."ngrok@".serviceConfig = {
+  MemoryLimit = "100M";      # Limit memory usage
+  CPUQuota = "50%";          # Limit CPU usage
+};
+```
+
+### Optimization Tips
+
+- Use appropriate regions for your user base
+- Disable inspection for high-traffic tunnels
+- Use TCP tunnels for non-HTTP protocols
+- Enable compression for HTTP tunnels with large responses
+
+## Next Steps
+
+<CardGrid>
+  <Card title="🔒 Add Security" icon="shield">
+    Learn about authentication and security features
+    
+    [Security Configuration →](/config/security/)
+  </Card>
+  <Card title="⚡ Performance" icon="rocket">
+    Optimize your tunnels for production use
+    
+    [Performance Tuning →](/config/performance/)
+  </Card>
+  <Card title="🔐 Authentication" icon="user">
+    Protect your tunnels with OAuth and other auth methods
+    
+    [Authentication Guide →](/auth/oauth/)
+  </Card>
+  <Card title="📚 Examples" icon="open-book">
+    See more complex real-world configurations
+    
+    [Advanced Examples →](/examples/advanced/)
+  </Card>
+</CardGrid>
+
+---
+
+With these basics, you can configure ngrok tunnels for most use cases. For more advanced features, check out the [Advanced Configuration](/config/advanced/) guide.

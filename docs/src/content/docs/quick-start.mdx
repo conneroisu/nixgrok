@@ -1,0 +1,370 @@
+---
+title: Quick Start
+description: Get your first ngrok tunnel running in 5 minutes
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# Quick Start Guide
+
+Get your first ngrok tunnel running in <Badge text="5 minutes" variant="tip" /> with this step-by-step guide.
+
+<Aside type="tip" title="What you'll build">
+A secure HTTPS tunnel exposing a local web server with authentication and security headers.
+</Aside>
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+<Steps>
+1. **NixOS System** <Badge text="23.11+" variant="note" />
+   
+   A NixOS system with flakes enabled (recommended)
+
+2. **ngrok Account** <Badge text="Free" variant="success" />
+   
+   Sign up at [ngrok.com](https://ngrok.com) - free tier includes 1 tunnel
+
+3. **Auth Token** <Badge text="Required" variant="caution" />
+   
+   Your ngrok auth token from the dashboard
+</Steps>
+
+## Step 1: Get Your Auth Token
+
+<Steps>
+1. **Sign up** at [ngrok.com](https://ngrok.com) for a free account
+
+2. **Navigate** to your [dashboard](https://dashboard.ngrok.com)
+
+3. **Copy your auth token** from the "Your Authtoken" section
+
+4. **Store it securely** - you'll need it for configuration
+</Steps>
+
+<Aside type="caution" title="Security Note">
+Keep your auth token secure! It provides access to your ngrok account and should be treated like a password. Never commit it to version control.
+</Aside>
+
+## Step 2: Add the Module
+
+<Tabs>
+  <TabItem label="Direct Import">
+    Add the module directly to your NixOS configuration:
+
+    ```nix title="configuration.nix"
+    { config, pkgs, ... }:
+
+    {
+      imports = [
+        # Import the ngrok module
+        (builtins.fetchurl {
+          url = "https://raw.githubusercontent.com/yourusername/nixgrok/main/modules/ngrok.nix";
+          sha256 = "..."; # Replace with actual hash
+        })
+      ];
+      
+      # Your existing configuration...
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Flakes">
+    Using flakes (recommended):
+
+    ```nix title="flake.nix"
+    {
+      inputs = {
+        nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+        ngrok-nixos.url = "github:yourusername/nixgrok";
+      };
+
+      outputs = { nixpkgs, ngrok-nixos, ... }: {
+        nixosConfigurations.myserver = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ngrok-nixos.nixosModules.default
+            ./configuration.nix
+          ];
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Template">
+    Use our template for a quick start:
+
+    ```bash
+    # Create a new project from template
+    nix flake init -t github:yourusername/nixgrok#basic
+    
+    # Edit the configuration
+    vim configuration.nix
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 3: Basic Configuration
+
+Add this minimal configuration to expose a simple web server:
+
+```nix title="configuration.nix"
+{
+  # Enable unfree packages (ngrok is proprietary)
+  nixpkgs.config.allowUnfree = true;
+  
+  # Configure the ngrok service
+  services.ngrok = {
+    enable = true;
+    authToken = "2abc123def456ghi789jkl"; # Replace with your token
+    
+    tunnels = {
+      web = {
+        protocol = "http";
+        port = 8080;
+      };
+    };
+  };
+  
+  # Simple web server for testing
+  systemd.services.test-server = {
+    enable = true;
+    description = "Test web server";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${pkgs.python3}/bin/python3 -m http.server 8080";
+      DynamicUser = true;
+      Restart = "always";
+    };
+  };
+  
+  # Allow the port through firewall
+  networking.firewall.allowedTCPPorts = [ 8080 ];
+}
+```
+
+## Step 4: Apply Configuration
+
+<Tabs>
+  <TabItem label="Standard NixOS">
+    ```bash
+    # Rebuild your system
+    sudo nixos-rebuild switch
+    ```
+  </TabItem>
+  
+  <TabItem label="Flakes">
+    ```bash
+    # Rebuild with flakes
+    sudo nixos-rebuild switch --flake .#myserver
+    ```
+  </TabItem>
+</Tabs>
+
+## Step 5: Verify It's Working
+
+<Steps>
+1. **Check service status**
+   
+   ```bash
+   # Check ngrok service status
+   systemctl status ngrok-web
+   
+   # Check test server status  
+   systemctl status test-server
+   ```
+
+2. **Get tunnel URL**
+   
+   ```bash
+   # View ngrok logs to get tunnel URL
+   journalctl -u ngrok-web -f
+   ```
+   
+   You should see output like:
+   ```
+   Started tunnel: https://abc123.ngrok-free.app -> http://localhost:8080
+   ```
+
+3. **Test the tunnel**
+   
+   <Tabs>
+     <TabItem label="Browser">
+       Visit the tunnel URL from the logs in your browser
+       
+       <Badge text="HTTPS" variant="success" /> secured automatically
+     </TabItem>
+     
+     <TabItem label="Local Test">
+       ```bash
+       curl http://localhost:8080
+       ```
+       
+       Should show your local server response
+     </TabItem>
+     
+     <TabItem label="Remote Test">
+       ```bash
+       curl https://abc123.ngrok-free.app
+       ```
+       
+       Should show the same response via ngrok tunnel
+     </TabItem>
+   </Tabs>
+</Steps>
+
+<Aside type="tip" title="🎉 Success!">
+If you can access your local server through the ngrok URL, you're all set! Your first tunnel is working with HTTPS encryption and ready for production use.
+</Aside>
+
+## Common Issues
+
+<CardGrid>
+  <Card title="Service Failed to Start" icon="error">
+    **Cause**: Invalid auth token or network issues
+    
+    **Solution**: 
+    - Check your auth token is correct
+    - Verify internet connectivity
+    - Check logs: `journalctl -u ngrok-web`
+  </Card>
+  
+  <Card title="Port Already in Use" icon="warning">
+    **Cause**: Another service is using port 8080
+    
+    **Solution**: 
+    - Change the port in your config
+    - Or stop the conflicting service
+  </Card>
+  
+  <Card title="Firewall Blocking" icon="shield">
+    **Cause**: NixOS firewall blocking the port
+    
+    **Solution**: 
+    - Add port to `networking.firewall.allowedTCPPorts`
+    - Or disable firewall temporarily for testing
+  </Card>
+</CardGrid>
+
+## Next Steps
+
+Now that you have a basic tunnel working, explore more features:
+
+<CardGrid>
+  <Card title="Add Security" icon="shield">
+    Add authentication and security features
+    
+    [Security Guide →](/config/security/)
+  </Card>
+  
+  <Card title="Multiple Tunnels" icon="puzzle">
+    Run multiple tunnels simultaneously
+    
+    [Advanced Config →](/config/advanced/)
+  </Card>
+  
+  <Card title="OAuth Integration" icon="user">
+    Protect your tunnels with OAuth
+    
+    [OAuth Guide →](/auth/oauth/)
+  </Card>
+  
+  <Card title="Production Setup" icon="rocket">
+    Deploy to production with monitoring
+    
+    [Production Guide →](/deployment/production/)
+  </Card>
+</CardGrid>
+
+## Example Configurations
+
+### Development Server
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.dev = {
+    protocol = "http";
+    port = 3000;
+    subdomain = "myapp-dev"; # Requires paid plan
+  };
+};
+```
+
+### API with Basic Auth
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.api = {
+    protocol = "https";
+    port = 8080;
+    auth = "admin:secretpassword";
+    compression = true;
+  };
+};
+```
+
+### SSH Access
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.ssh = {
+    protocol = "tcp";
+    port = 22;
+  };
+};
+```
+
+## Troubleshooting
+
+### Check Service Status
+```bash
+# View all ngrok services
+systemctl status 'ngrok-*'
+
+# Check specific tunnel
+systemctl status ngrok-web
+
+# Restart if needed
+sudo systemctl restart ngrok-web
+```
+
+### View Logs
+```bash
+# Real-time logs
+journalctl -u ngrok-web -f
+
+# Recent logs
+journalctl -u ngrok-web -n 50
+
+# All ngrok logs
+journalctl -u 'ngrok-*' -f
+```
+
+### Test Configuration
+```bash
+# Test config file syntax
+sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml config check
+
+# Manual tunnel test
+sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml start web
+```
+
+## Getting Help
+
+If you run into issues:
+
+1. **Check the logs** first with `journalctl -u ngrok-web`
+2. **Verify your token** is correct and active
+3. **Test network connectivity** to ngrok.com
+4. **Review the configuration** for typos
+5. **Check our [troubleshooting guide](/deployment/troubleshooting/)**
+
+---
+
+Congratulations! You now have a working ngrok tunnel. Explore the [configuration options](/config/basic/) to add more features and security to your setup.

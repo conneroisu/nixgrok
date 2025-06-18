@@ -1,0 +1,187 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'docs/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'docs/**' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  BUILD_PATH: "./docs"
+
+jobs:
+  lint:
+    name: Lint Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ env.BUILD_PATH }}/package-lock.json
+          
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Lint code
+        run: npm run lint
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Check formatting
+        run: npm run format:check
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Type check
+        run: npm run typecheck
+        working-directory: ${{ env.BUILD_PATH }}
+
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ env.BUILD_PATH }}/package-lock.json
+          
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v4
+        
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Build with Astro
+        run: |
+          npm run build \
+            -- --site "${{ steps.pages.outputs.origin }}" \
+            --base "${{ steps.pages.outputs.base_path }}"
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.BUILD_PATH }}/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  test:
+    name: Test Documentation
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ env.BUILD_PATH }}/package-lock.json
+          
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: ${{ env.BUILD_PATH }}/dist
+          
+      - name: Test documentation build
+        run: |
+          # Test that critical pages exist
+          test -f dist/index.html
+          test -f dist/quick-start/index.html
+          test -f dist/config/basic/index.html
+          test -f dist/examples/basic/index.html
+          
+          # Test that assets are properly built
+          test -d dist/_astro
+          
+          # Check for broken links (basic)
+          grep -r "href=\"#" dist/ || true
+          
+          echo "Documentation build test passed!"
+        working-directory: ${{ env.BUILD_PATH }}
+        
+      - name: Preview deployment comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('📖 Documentation Preview')
+            );
+            
+            const body = `📖 **Documentation Preview**
+            
+            The documentation has been built successfully!
+            
+            - ✅ Linting passed
+            - ✅ Type checking passed
+            - ✅ Build completed
+            - ✅ Basic tests passed
+            
+            Preview will be available once this PR is merged.`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }

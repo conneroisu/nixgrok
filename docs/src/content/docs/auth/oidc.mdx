@@ -1,0 +1,660 @@
+---
+title: OIDC Support
+description: Enterprise OpenID Connect integration for custom identity providers
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# OpenID Connect (OIDC) Support
+
+Integrate ngrok with your enterprise identity provider using OpenID Connect for secure, centralized authentication.
+
+<Aside type="note" title="Enterprise Feature">
+OIDC support provides enterprise-grade authentication with custom identity providers, role-based access control, and detailed audit logging.
+</Aside>
+
+## Overview
+
+OIDC integration enables:
+
+<CardGrid>
+  <Card title="Enterprise SSO" icon="user">
+    Single sign-on with your existing identity provider
+    
+    <Badge text="SAML" variant="tip" /> <Badge text="Active Directory" variant="tip" /> <Badge text="Okta" variant="tip" />
+  </Card>
+  <Card title="Role-Based Access" icon="shield">
+    Fine-grained access control based on user roles and groups
+    
+    <Badge text="Claims-based" variant="success" />
+  </Card>
+  <Card title="Audit Compliance" icon="document">
+    Complete audit trails for enterprise compliance requirements
+    
+    <Badge text="SOX" variant="caution" /> <Badge text="SOC 2" variant="caution" />
+  </Card>
+  <Card title="Custom Providers" icon="puzzle">
+    Support for any OIDC-compliant identity provider
+    
+    <Badge text="Standard compliant" variant="note" />
+  </Card>
+</CardGrid>
+
+## Basic OIDC Configuration
+
+### Simple Setup
+
+```nix
+services.ngrok.tunnels.enterprise-app = {
+  protocol = "https";
+  port = 8080;
+  hostname = "app.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "ngrok-tunnel-client";
+    client_secret = "your-oidc-client-secret";
+    
+    # Basic scope requirements
+    scopes = [ "openid" "email" "profile" ];
+  };
+};
+```
+
+### Provider-Specific Examples
+
+<Tabs>
+  <TabItem label="Auth0">
+    ```nix
+    services.ngrok.tunnels.auth0-protected = {
+      protocol = "https";
+      port = 8080;
+      hostname = "secure.mycompany.com";
+      
+      oidc = {
+        issuer_url = "https://mycompany.auth0.com";
+        client_id = "your-auth0-client-id";
+        client_secret = "your-auth0-client-secret";
+        
+        # Auth0-specific scopes
+        scopes = [ "openid" "email" "profile" "roles" ];
+        
+        # Allow specific emails or domains
+        allow_emails = [
+          "admin@mycompany.com"
+          "developer@mycompany.com"
+        ];
+        
+        allow_domains = [ "mycompany.com" ];
+      };
+    };
+    ```
+    
+    **Auth0 Setup:**
+    <Steps>
+    1. Create a new application in Auth0 dashboard
+    2. Set application type to "Regular Web Application"
+    3. Configure allowed callback URLs: `https://secure.mycompany.com/oauth2/callback`
+    4. Copy Client ID and Client Secret
+    5. Configure scopes in Auth0 API settings
+    </Steps>
+  </TabItem>
+  
+  <TabItem label="Okta">
+    ```nix
+    services.ngrok.tunnels.okta-enterprise = {
+      protocol = "https";
+      port = 8080;
+      hostname = "enterprise.mycompany.com";
+      
+      oidc = {
+        issuer_url = "https://mycompany.okta.com";
+        client_id = "0oa1b2c3d4e5f6g7h8i9";
+        client_secret = "okta-client-secret";
+        
+        # Okta-specific configuration
+        scopes = [ "openid" "email" "profile" "groups" ];
+        
+        # Group-based access control
+        allow_emails = [
+          "admin@mycompany.com"
+        ];
+        
+        # Can also use Okta groups (requires custom claims)
+        allow_domains = [ "mycompany.com" ];
+      };
+    };
+    ```
+    
+    **Okta Setup:**
+    <Steps>
+    1. Create new App Integration in Okta Admin Console
+    2. Choose "OIDC - OpenID Connect"
+    3. Select "Web Application"
+    4. Set redirect URI: `https://enterprise.mycompany.com/oauth2/callback`
+    5. Assign users/groups to the application
+    6. Configure custom claims for groups if needed
+    </Steps>
+  </TabItem>
+  
+  <TabItem label="Azure AD">
+    ```nix
+    services.ngrok.tunnels.azure-protected = {
+      protocol = "https";
+      port = 8080;
+      hostname = "portal.mycompany.com";
+      
+      oidc = {
+        issuer_url = "https://login.microsoftonline.com/your-tenant-id/v2.0";
+        client_id = "azure-application-id";
+        client_secret = "azure-client-secret";
+        
+        # Azure AD scopes
+        scopes = [ "openid" "email" "profile" "User.Read" ];
+        
+        # Domain restriction for organization
+        allow_domains = [ "mycompany.com" ];
+        
+        # Specific users if needed
+        allow_emails = [
+          "admin@mycompany.com"
+          "developer@mycompany.com"
+        ];
+      };
+    };
+    ```
+    
+    **Azure AD Setup:**
+    <Steps>
+    1. Register new application in Azure Portal
+    2. Configure redirect URI: `https://portal.mycompany.com/oauth2/callback`
+    3. Generate client secret in "Certificates & secrets"
+    4. Configure API permissions (Microsoft Graph)
+    5. Set up conditional access policies if needed
+    </Steps>
+  </TabItem>
+  
+  <TabItem label="Keycloak">
+    ```nix
+    services.ngrok.tunnels.keycloak-app = {
+      protocol = "https";
+      port = 8080;
+      hostname = "internal.mycompany.com";
+      
+      oidc = {
+        issuer_url = "https://keycloak.mycompany.com/realms/mycompany";
+        client_id = "ngrok-client";
+        client_secret = "keycloak-client-secret";
+        
+        # Keycloak scopes and roles
+        scopes = [ "openid" "email" "profile" "roles" ];
+        
+        # Role-based access (requires custom claims)
+        allow_emails = [
+          "admin@mycompany.com"
+        ];
+        
+        allow_domains = [ "mycompany.com" ];
+      };
+    };
+    ```
+    
+    **Keycloak Setup:**
+    <Steps>
+    1. Create new client in Keycloak admin console
+    2. Set access type to "confidential"
+    3. Configure valid redirect URIs: `https://internal.mycompany.com/oauth2/callback`
+    4. Generate client secret
+    5. Configure mappers for custom claims
+    6. Assign roles to users
+    </Steps>
+  </TabItem>
+</Tabs>
+
+## Advanced OIDC Features
+
+### Role-Based Access Control
+
+Implement fine-grained access control using OIDC claims:
+
+```nix
+services.ngrok.tunnels.rbac-application = {
+  protocol = "https";
+  port = 8080;
+  hostname = "rbac.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "rbac-client";
+    client_secret = "rbac-secret";
+    
+    # Request additional claims
+    scopes = [ "openid" "email" "profile" "roles" "groups" ];
+    
+    # Email-based access control
+    allow_emails = [
+      "admin@mycompany.com"           # Full admin access
+      "manager@mycompany.com"         # Manager access
+      "developer@mycompany.com"       # Developer access
+    ];
+    
+    # Domain-wide access for employees
+    allow_domains = [ "mycompany.com" ];
+  };
+  
+  # Add role information to requests
+  request_header_add = {
+    "X-User-Email" = "$oidc_claim_email";
+    "X-User-Role" = "$oidc_claim_role";
+    "X-User-Groups" = "$oidc_claim_groups";
+  };
+};
+```
+
+### Multi-Tenant Configuration
+
+Support multiple organizations with separate OIDC providers:
+
+```nix
+services.ngrok.tunnels = {
+  # Customer A tenant
+  customer-a = {
+    protocol = "https";
+    port = 8080;
+    hostname = "customer-a.myapp.com";
+    
+    oidc = {
+      issuer_url = "https://customer-a.auth.com";
+      client_id = "customer-a-client";
+      client_secret = "customer-a-secret";
+      scopes = [ "openid" "email" "profile" ];
+      allow_domains = [ "customer-a.com" ];
+    };
+    
+    request_header_add = {
+      "X-Tenant" = "customer-a";
+    };
+  };
+  
+  # Customer B tenant
+  customer-b = {
+    protocol = "https";
+    port = 8081;
+    hostname = "customer-b.myapp.com";
+    
+    oidc = {
+      issuer_url = "https://customer-b.okta.com";
+      client_id = "customer-b-client";
+      client_secret = "customer-b-secret";
+      scopes = [ "openid" "email" "profile" "groups" ];
+      allow_domains = [ "customer-b.com" ];
+    };
+    
+    request_header_add = {
+      "X-Tenant" = "customer-b";
+    };
+  };
+};
+```
+
+### Custom Claims and Attributes
+
+Extract and use custom claims from your identity provider:
+
+```nix
+services.ngrok.tunnels.custom-claims = {
+  protocol = "https";
+  port = 8080;
+  hostname = "claims.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "claims-client";
+    client_secret = "claims-secret";
+    
+    # Request custom scopes for additional claims
+    scopes = [
+      "openid"
+      "email"
+      "profile"
+      "department"        # Custom scope for department info
+      "cost-center"       # Custom scope for cost center
+      "security-level"    # Custom scope for security clearance
+    ];
+    
+    allow_domains = [ "mycompany.com" ];
+  };
+  
+  # Forward custom claims to application
+  request_header_add = {
+    "X-User-Email" = "$oidc_claim_email";
+    "X-User-Name" = "$oidc_claim_name";
+    "X-User-Department" = "$oidc_claim_department";
+    "X-User-Cost-Center" = "$oidc_claim_cost_center";
+    "X-Security-Level" = "$oidc_claim_security_level";
+    "X-Auth-Time" = "$oidc_claim_auth_time";
+  };
+};
+```
+
+## Security Best Practices
+
+### Secure Client Configuration
+
+<Tabs>
+  <TabItem label="Client Secret Management">
+    ```nix
+    # ❌ Don't hardcode secrets
+    oidc.client_secret = "hardcoded-secret";
+    
+    # ✅ Use external secret management
+    oidc.client_secret = builtins.readFile "/run/secrets/oidc-client-secret";
+    
+    # ✅ Or use environment variables
+    oidc.client_secret = builtins.getEnv "OIDC_CLIENT_SECRET";
+    ```
+    
+    **NixOS Secrets Management:**
+    ```nix
+    # Using agenix for secret management
+    age.secrets.oidc-client-secret = {
+      file = ./secrets/oidc-client-secret.age;
+      owner = "ngrok";
+      group = "ngrok";
+    };
+    
+    services.ngrok.tunnels.secure.oidc.client_secret = 
+      config.age.secrets.oidc-client-secret.path;
+    ```
+  </TabItem>
+  
+  <TabItem label="Network Security">
+    ```nix
+    services.ngrok.tunnels.secure-oidc = {
+      protocol = "https";
+      port = 8080;
+      hostname = "secure.mycompany.com";
+      
+      # OIDC configuration
+      oidc = {
+        issuer_url = "https://auth.mycompany.com";
+        client_id = "secure-client";
+        client_secret = config.age.secrets.oidc-secret.path;
+        scopes = [ "openid" "email" ];
+        allow_domains = [ "mycompany.com" ];
+      };
+      
+      # Additional network security
+      ip_restriction_allow_cidrs = [
+        "10.0.0.0/8"          # Corporate network
+        "172.16.0.0/12"       # VPN users
+      ];
+      
+      # Security headers
+      response_header_add = {
+        "Strict-Transport-Security" = "max-age=31536000; includeSubDomains";
+        "X-Frame-Options" = "DENY";
+        "Content-Security-Policy" = "default-src 'self'";
+      };
+      
+      # Circuit breaker for DoS protection
+      circuit_breaker = 0.1;
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Audit Logging">
+    ```nix
+    services.ngrok.tunnels.audited-app = {
+      protocol = "https";
+      port = 8080;
+      hostname = "audit.mycompany.com";
+      
+      oidc = {
+        issuer_url = "https://auth.mycompany.com";
+        client_id = "audit-client";
+        client_secret = config.age.secrets.oidc-secret.path;
+        scopes = [ "openid" "email" "profile" ];
+        allow_domains = [ "mycompany.com" ];
+      };
+      
+      # Enable detailed inspection for audit trails
+      inspect = true;
+      
+      # Add audit headers
+      request_header_add = {
+        "X-Audit-User" = "$oidc_claim_email";
+        "X-Audit-Timestamp" = "$time_iso8601";
+        "X-Audit-Request-ID" = "$request_id";
+        "X-Audit-Source-IP" = "$remote_addr";
+      };
+    };
+    
+    # Configure audit log retention
+    services.journald.extraConfig = ''
+      SystemMaxUse=2G
+      MaxRetentionSec=2592000  # 30 days
+      MaxFileSec=86400         # 1 day per file
+    '';
+    ```
+  </TabItem>
+</Tabs>
+
+## Troubleshooting OIDC
+
+### Common Issues
+
+<CardGrid>
+  <Card title="Invalid Issuer URL" icon="error">
+    **Error**: `failed to discover OIDC configuration`
+    
+    **Solutions**:
+    - Verify issuer URL is accessible from ngrok server
+    - Check `.well-known/openid-configuration` endpoint
+    - Ensure HTTPS is used for issuer URL
+    
+    ```bash
+    # Test OIDC discovery
+    curl https://auth.mycompany.com/.well-known/openid-configuration
+    ```
+  </Card>
+  
+  <Card title="Client Authentication Failed" icon="warning">
+    **Error**: `invalid_client` or authentication failure
+    
+    **Solutions**:
+    - Verify client ID and secret are correct
+    - Check client is enabled in identity provider
+    - Ensure redirect URI matches exactly
+    
+    ```nix
+    # Debug with detailed logging
+    services.ngrok.extraArgs = [ "--log-level" "debug" ];
+    ```
+  </Card>
+  
+  <Card title="Scope Issues" icon="shield">
+    **Error**: `insufficient_scope` or missing claims
+    
+    **Solutions**:
+    - Request required scopes in configuration
+    - Configure identity provider to return claims
+    - Check user has necessary permissions
+    
+    ```nix
+    # Add all required scopes
+    oidc.scopes = [ "openid" "email" "profile" "roles" ];
+    ```
+  </Card>
+  
+  <Card title="Redirect URI Mismatch" icon="external">
+    **Error**: `redirect_uri_mismatch`
+    
+    **Solutions**:
+    - Configure exact redirect URI in identity provider
+    - Use HTTPS for production configurations
+    - Check for trailing slashes and case sensitivity
+    
+    ```
+    # Correct format
+    https://app.mycompany.com/oauth2/callback
+    ```
+  </Card>
+</CardGrid>
+
+### Debug Configuration
+
+```nix
+services.ngrok.tunnels.debug-oidc = {
+  protocol = "https";
+  port = 8080;
+  hostname = "debug.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "debug-client";
+    client_secret = "debug-secret";
+    scopes = [ "openid" "email" "profile" ];
+    allow_domains = [ "mycompany.com" ];
+  };
+  
+  # Enable inspection for debugging
+  inspect = true;
+  
+  # Add debug headers
+  request_header_add = {
+    "X-Debug-Claims" = "$oidc_claims";
+    "X-Debug-Token" = "$oidc_access_token";
+  };
+};
+
+# Enable debug logging
+systemd.services."ngrok-debug-oidc".environment = {
+  NGROK_LOG_LEVEL = "debug";
+};
+```
+
+### Testing OIDC Flow
+
+<Steps>
+1. **Test OIDC Discovery**
+   
+   ```bash
+   curl -s https://auth.mycompany.com/.well-known/openid-configuration | jq
+   ```
+
+2. **Verify Client Configuration**
+   
+   Check that your client ID and redirect URI are properly configured in your identity provider.
+
+3. **Test Authentication Flow**
+   
+   1. Visit your ngrok tunnel URL
+   2. Should redirect to identity provider
+   3. Log in with valid credentials
+   4. Should redirect back to your application
+
+4. **Check Request Headers**
+   
+   ```bash
+   # View headers passed to your application
+   journalctl -u ngrok-debug-oidc | grep "X-Debug"
+   ```
+</Steps>
+
+## Integration Examples
+
+### Admin Dashboard
+
+```nix
+services.ngrok.tunnels.admin-dashboard = {
+  protocol = "https";
+  port = 8443;
+  hostname = "admin.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "admin-dashboard";
+    client_secret = config.age.secrets.admin-oidc-secret.path;
+    
+    # Admin-specific scopes
+    scopes = [ "openid" "email" "profile" "admin" ];
+    
+    # Restrict to admin users only
+    allow_emails = [
+      "admin@mycompany.com"
+      "cto@mycompany.com"
+      "security@mycompany.com"
+    ];
+  };
+  
+  # Additional security for admin interface
+  ip_restriction_allow_cidrs = [ "10.0.0.0/8" ];
+  
+  response_header_add = {
+    "X-Frame-Options" = "DENY";
+    "Content-Security-Policy" = "default-src 'self'";
+  };
+};
+```
+
+### Customer Portal
+
+```nix
+services.ngrok.tunnels.customer-portal = {
+  protocol = "https";
+  port = 8080;
+  hostname = "portal.mycompany.com";
+  
+  oidc = {
+    issuer_url = "https://customer-auth.mycompany.com";
+    client_id = "customer-portal";
+    client_secret = config.age.secrets.customer-oidc-secret.path;
+    
+    # Customer-focused scopes
+    scopes = [ "openid" "email" "profile" "customer" ];
+    
+    # Allow any customer domain
+    allow_domains = [
+      "customer1.com"
+      "customer2.com"
+      "partner.com"
+    ];
+  };
+  
+  # Customer identification headers
+  request_header_add = {
+    "X-Customer-Email" = "$oidc_claim_email";
+    "X-Customer-Org" = "$oidc_claim_org";
+  };
+};
+```
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard
+    title="OAuth Integration"
+    description="Compare with OAuth provider authentication"
+    href="/auth/oauth/"
+  />
+  <LinkCard
+    title="Mutual TLS"
+    description="Add client certificate authentication"
+    href="/auth/mtls/"
+  />
+  <LinkCard
+    title="Security Configuration"
+    description="Implement comprehensive security measures"
+    href="/config/security/"
+  />
+  <LinkCard
+    title="Enterprise Examples"
+    description="Complete enterprise deployment patterns"
+    href="/examples/enterprise/"
+  />
+</CardGrid>
+
+---
+
+OIDC integration provides enterprise-grade authentication with your existing identity infrastructure, enabling secure, scalable access control for your ngrok tunnels.

@@ -1,0 +1,367 @@
+/* Custom styles for ngrok documentation */
+
+/* Enhanced code blocks */
+.expressive-code {
+  margin: 1.5rem 0;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Custom badge styling */
+.starlight-badge {
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Badge variants */
+.starlight-badge--tip {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+.starlight-badge--success {
+  background-color: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.starlight-badge--caution {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.starlight-badge--note {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+/* Dark mode badge adjustments */
+:root[data-theme='dark'] .starlight-badge--tip {
+  background-color: #1e3a8a;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+
+:root[data-theme='dark'] .starlight-badge--success {
+  background-color: #14532d;
+  color: #86efac;
+  border-color: #22c55e;
+}
+
+:root[data-theme='dark'] .starlight-badge--caution {
+  background-color: #92400e;
+  color: #fcd34d;
+  border-color: #f59e0b;
+}
+
+:root[data-theme='dark'] .starlight-badge--note {
+  background-color: #374151;
+  color: #d1d5db;
+  border-color: #6b7280;
+}
+
+/* Card enhancements */
+.starlight-card {
+  transition: all 0.2s ease;
+  border: 1px solid var(--sl-color-gray-5);
+}
+
+.starlight-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border-color: var(--sl-color-accent);
+}
+
+/* Step indicators */
+.starlight-steps ol {
+  counter-reset: step-counter;
+  list-style: none;
+  padding-left: 0;
+}
+
+.starlight-steps ol > li {
+  counter-increment: step-counter;
+  position: relative;
+  padding-left: 3rem;
+  margin-bottom: 2rem;
+}
+
+.starlight-steps ol > li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2rem;
+  height: 2rem;
+  background: var(--sl-color-accent);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.875rem;
+}
+
+/* Tab improvements */
+.starlight-tabs {
+  margin: 1.5rem 0;
+}
+
+.starlight-tabs [role="tablist"] {
+  border-bottom: 2px solid var(--sl-color-gray-5);
+  margin-bottom: 1rem;
+}
+
+.starlight-tabs [role="tab"] {
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.starlight-tabs [role="tab"]:hover {
+  background-color: var(--sl-color-gray-6);
+}
+
+.starlight-tabs [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--sl-color-accent);
+  color: var(--sl-color-accent);
+}
+
+/* Aside (callout) styling */
+.starlight-aside {
+  border-left: 4px solid;
+  border-radius: 0 8px 8px 0;
+  padding: 1rem 1.5rem;
+  margin: 1.5rem 0;
+  background: var(--sl-color-gray-7);
+}
+
+.starlight-aside--note {
+  border-color: var(--sl-color-blue);
+  background: var(--sl-color-blue-low);
+}
+
+.starlight-aside--tip {
+  border-color: var(--sl-color-green);
+  background: var(--sl-color-green-low);
+}
+
+.starlight-aside--caution {
+  border-color: var(--sl-color-orange);
+  background: var(--sl-color-orange-low);
+}
+
+.starlight-aside--danger {
+  border-color: var(--sl-color-red);
+  background: var(--sl-color-red-low);
+}
+
+/* File tree styling */
+.starlight-file-tree {
+  background: var(--sl-color-gray-6);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  font-family: var(--sl-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.starlight-file-tree ul {
+  list-style: none;
+  padding-left: 1.5rem;
+  margin: 0;
+}
+
+.starlight-file-tree li {
+  position: relative;
+  margin: 0.25rem 0;
+}
+
+.starlight-file-tree li::before {
+  content: "├── ";
+  position: absolute;
+  left: -1.5rem;
+  color: var(--sl-color-gray-3);
+}
+
+.starlight-file-tree li:last-child::before {
+  content: "└── ";
+}
+
+/* Link card styling */
+.starlight-link-card {
+  display: block;
+  padding: 1.5rem;
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.2s ease;
+  margin: 1rem 0;
+}
+
+.starlight-link-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  border-color: var(--sl-color-accent);
+  text-decoration: none;
+}
+
+.starlight-link-card h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--sl-color-accent);
+  font-size: 1.125rem;
+}
+
+.starlight-link-card p {
+  margin: 0;
+  color: var(--sl-color-gray-2);
+  font-size: 0.875rem;
+}
+
+/* Code highlighting improvements */
+.expressive-code .highlight {
+  background: rgba(255, 255, 0, 0.2);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+}
+
+/* Terminal-style code blocks */
+.expressive-code[data-language="bash"],
+.expressive-code[data-language="sh"],
+.expressive-code[data-language="shell"] {
+  background: #1a1a1a;
+}
+
+.expressive-code[data-language="bash"] .code,
+.expressive-code[data-language="sh"] .code,
+.expressive-code[data-language="shell"] .code {
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .starlight-card {
+    margin: 0.5rem 0;
+  }
+  
+  .starlight-steps ol > li {
+    padding-left: 2.5rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .starlight-steps ol > li::before {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.75rem;
+  }
+  
+  .starlight-tabs [role="tab"] {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+}
+
+/* Animation for interactive elements */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.starlight-card,
+.starlight-aside,
+.starlight-link-card {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+/* Print styles */
+@media print {
+  .starlight-tabs [role="tablist"] {
+    display: none;
+  }
+  
+  .starlight-tabs [role="tabpanel"] {
+    display: block !important;
+  }
+  
+  .starlight-card {
+    break-inside: avoid;
+    box-shadow: none;
+    border: 1px solid #ccc;
+  }
+}
+
+/* Custom scrollbar for code blocks */
+.expressive-code::-webkit-scrollbar {
+  height: 8px;
+}
+
+.expressive-code::-webkit-scrollbar-track {
+  background: var(--sl-color-gray-6);
+  border-radius: 4px;
+}
+
+.expressive-code::-webkit-scrollbar-thumb {
+  background: var(--sl-color-gray-4);
+  border-radius: 4px;
+}
+
+.expressive-code::-webkit-scrollbar-thumb:hover {
+  background: var(--sl-color-gray-3);
+}
+
+/* Focus indicators for accessibility */
+.starlight-tabs [role="tab"]:focus,
+.starlight-link-card:focus {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .starlight-badge {
+    border-width: 2px;
+  }
+  
+  .starlight-card {
+    border-width: 2px;
+  }
+  
+  .starlight-aside {
+    border-left-width: 6px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .starlight-card,
+  .starlight-aside,
+  .starlight-link-card {
+    animation: none;
+    transition: none;
+  }
+  
+  .starlight-card:hover,
+  .starlight-link-card:hover {
+    transform: none;
+  }
+}

@@ -1,0 +1,620 @@
+---
+title: Configuration Options
+description: Complete reference for all ngrok NixOS service options
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Configuration Options Reference
+
+This page documents all available configuration options for the ngrok NixOS service.
+
+## Global Options
+
+### `services.ngrok.enable`
+**Type**: `boolean`  
+**Default**: `false`
+
+Enable the ngrok service.
+
+```nix
+services.ngrok.enable = true;
+```
+
+### `services.ngrok.authToken`
+**Type**: `string`  
+**Required**: Yes
+
+Your ngrok authentication token from the dashboard.
+
+```nix
+services.ngrok.authToken = "2abc123def456ghi789jkl";
+```
+
+<Card title="⚠️ Security Warning" icon="warning">
+  Never commit auth tokens to version control. Consider using NixOS secrets management.
+</Card>
+
+### `services.ngrok.package`
+**Type**: `package`  
+**Default**: `pkgs.ngrok`
+
+The ngrok package to use.
+
+```nix
+services.ngrok.package = pkgs.ngrok;
+```
+
+### `services.ngrok.region`
+**Type**: `enum`  
+**Default**: `"us"`  
+**Options**: `"us"`, `"eu"`, `"au"`, `"ap"`, `"sa"`, `"jp"`, `"in"`
+
+The ngrok region to connect to.
+
+```nix
+services.ngrok.region = "eu";
+```
+
+### `services.ngrok.metadata`
+**Type**: `string` or `null`  
+**Default**: `null`
+
+Opaque user-defined metadata for the tunnel session.
+
+```nix
+services.ngrok.metadata = "production-server-v1.2";
+```
+
+### `services.ngrok.user`
+**Type**: `string`  
+**Default**: `"ngrok"`
+
+User to run ngrok services as.
+
+### `services.ngrok.group`
+**Type**: `string`  
+**Default**: `"ngrok"`
+
+Group to run ngrok services as.
+
+### `services.ngrok.configFile`
+**Type**: `path` or `null`  
+**Default**: `null`
+
+Path to custom ngrok configuration file. If null, config is auto-generated.
+
+```nix
+services.ngrok.configFile = "/etc/ngrok/custom-config.yml";
+```
+
+## Tunnel Options
+
+Tunnels are defined in the `services.ngrok.tunnels` attribute set. Each tunnel has these options:
+
+### Basic Options
+
+#### `protocol`
+**Type**: `enum`  
+**Default**: `"http"`  
+**Options**: `"http"`, `"https"`, `"tcp"`, `"tls"`
+
+The protocol to tunnel.
+
+```nix
+services.ngrok.tunnels.web = {
+  protocol = "https";
+  port = 443;
+};
+```
+
+#### `port`
+**Type**: `port` (1-65535)  
+**Required**: Yes
+
+Local port to tunnel.
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "http";
+  port = 8080;
+};
+```
+
+#### `hostname`
+**Type**: `string` or `null`  
+**Default**: `null`
+
+Custom hostname for the tunnel (requires paid plan, overrides subdomain).
+
+```nix
+services.ngrok.tunnels.web = {
+  protocol = "https";
+  port = 80;
+  hostname = "myapp.example.com";
+};
+```
+
+#### `subdomain`
+**Type**: `string` or `null`  
+**Default**: `null`
+
+Custom subdomain (requires paid plan).
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "http";
+  port = 3000;
+  subdomain = "myapp-api";
+};
+```
+
+### Authentication Options
+
+#### `auth`
+**Type**: `string` or `null`  
+**Default**: `null`
+
+HTTP basic authentication in format `username:password`.
+
+```nix
+services.ngrok.tunnels.admin = {
+  protocol = "http";
+  port = 8080;
+  auth = "admin:secretpassword";
+};
+```
+
+#### `oauth`
+**Type**: `submodule` or `null`  
+**Default**: `null`
+
+OAuth configuration for supported providers.
+
+<Tabs>
+  <TabItem label="Google">
+    ```nix
+    services.ngrok.tunnels.admin = {
+      protocol = "https";
+      port = 8080;
+      oauth = {
+        provider = "google";
+        allow_domains = [ "mycompany.com" ];
+        scopes = [ "openid" "email" "profile" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="GitHub">
+    ```nix
+    services.ngrok.tunnels.dev = {
+      protocol = "https";
+      port = 3000;
+      oauth = {
+        provider = "github";
+        allow_emails = [ "developer@mycompany.com" ];
+        scopes = [ "user:email" ];
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Microsoft">
+    ```nix
+    services.ngrok.tunnels.enterprise = {
+      protocol = "https";
+      port = 8090;
+      oauth = {
+        provider = "microsoft";
+        allow_domains = [ "mycompany.com" ];
+        scopes = [ "openid" "email" "profile" ];
+      };
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+**OAuth Submodule Options**:
+- `provider`: `"google"` | `"github"` | `"microsoft"` | `"facebook"`
+- `allow_emails`: List of allowed email addresses
+- `allow_domains`: List of allowed email domains
+- `scopes`: List of OAuth scopes to request
+
+#### `oidc`
+**Type**: `submodule` or `null`  
+**Default**: `null`
+
+OpenID Connect configuration for custom identity providers.
+
+```nix
+services.ngrok.tunnels.enterprise = {
+  protocol = "https";
+  port = 8443;
+  oidc = {
+    issuer_url = "https://auth.mycompany.com";
+    client_id = "ngrok-tunnel";
+    client_secret = "oidc-secret-key";
+    allow_emails = [ "admin@mycompany.com" ];
+    scopes = [ "openid" "email" "profile" "groups" ];
+  };
+};
+```
+
+**OIDC Submodule Options**:
+- `issuer_url`: OIDC issuer URL
+- `client_id`: OIDC client ID
+- `client_secret`: OIDC client secret
+- `allow_emails`: List of allowed email addresses
+- `allow_domains`: List of allowed email domains
+- `scopes`: List of OIDC scopes to request
+
+#### `webhook_verification`
+**Type**: `submodule` or `null`  
+**Default**: `null`
+
+Webhook verification for supported providers.
+
+```nix
+services.ngrok.tunnels.webhooks = {
+  protocol = "https";
+  port = 9000;
+  webhook_verification = {
+    provider = "github";
+    secret = "webhook-secret-key";
+  };
+};
+```
+
+**Supported Providers**: `"slack"`, `"sns"`, `"stripe"`, `"github"`, `"twilio"`, `"shopify"`, `"zoom"`, `"svix"`
+
+#### `mutual_tls_cas`
+**Type**: `list of path` or `null`  
+**Default**: `null`
+
+List of PEM TLS certificate authorities for client certificate verification.
+
+```nix
+services.ngrok.tunnels.secure-api = {
+  protocol = "https";
+  port = 8443;
+  mutual_tls_cas = [ 
+    "/etc/ssl/certs/company-ca.crt" 
+    "/etc/ssl/certs/partner-ca.crt"
+  ];
+};
+```
+
+### Security Options
+
+#### `ip_restriction_allow_cidrs`
+**Type**: `list of string` or `null`  
+**Default**: `null`
+
+List of allowed CIDR blocks.
+
+```nix
+services.ngrok.tunnels.admin = {
+  protocol = "https";
+  port = 8080;
+  ip_restriction_allow_cidrs = [
+    "10.0.0.0/8"      # Internal networks
+    "203.0.113.0/24"  # Office network
+  ];
+};
+```
+
+#### `ip_restriction_deny_cidrs`
+**Type**: `list of string` or `null`  
+**Default**: `null`
+
+List of denied CIDR blocks.
+
+```nix
+services.ngrok.tunnels.public-api = {
+  protocol = "https";
+  port = 8000;
+  ip_restriction_deny_cidrs = [
+    "192.0.2.0/24"    # Blocked test network
+  ];
+};
+```
+
+### Performance Options
+
+#### `compression`
+**Type**: `boolean`  
+**Default**: `false`
+
+Enable gzip compression for HTTP responses.
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "http";
+  port = 3000;
+  compression = true;
+};
+```
+
+#### `websocket_tcp_converter`
+**Type**: `boolean`  
+**Default**: `false`
+
+Enable WebSocket to TCP conversion.
+
+```nix
+services.ngrok.tunnels.realtime = {
+  protocol = "http";
+  port = 3001;
+  websocket_tcp_converter = true;
+};
+```
+
+#### `circuit_breaker`
+**Type**: `float` or `null`  
+**Default**: `null`
+
+Reject requests when 5XX responses exceed this ratio (0.0-1.0).
+
+```nix
+services.ngrok.tunnels.critical-api = {
+  protocol = "https";
+  port = 8443;
+  circuit_breaker = 0.1; # Reject when 10% of responses are 5XX
+};
+```
+
+#### `inspect`
+**Type**: `boolean`  
+**Default**: `true`
+
+Enable/disable request inspection in ngrok dashboard.
+
+```nix
+services.ngrok.tunnels.high-volume = {
+  protocol = "http";
+  port = 8080;
+  inspect = false; # Disable for better performance
+};
+```
+
+### Header Manipulation
+
+#### `request_header_add`
+**Type**: `attribute set of string`  
+**Default**: `{}`
+
+Headers to add to incoming requests.
+
+```nix
+services.ngrok.tunnels.api = {
+  protocol = "http";
+  port = 8080;
+  request_header_add = {
+    "X-Forwarded-Proto" = "https";
+    "X-Real-IP" = "$remote_addr";
+    "X-Custom-Header" = "ngrok-tunnel";
+  };
+};
+```
+
+#### `request_header_remove`
+**Type**: `list of string`  
+**Default**: `[]`
+
+Headers to remove from incoming requests.
+
+```nix
+services.ngrok.tunnels.clean-api = {
+  protocol = "http";
+  port = 8080;
+  request_header_remove = [ "X-Forwarded-For" "User-Agent" ];
+};
+```
+
+#### `response_header_add`
+**Type**: `attribute set of string`  
+**Default**: `{}`
+
+Headers to add to outgoing responses.
+
+```nix
+services.ngrok.tunnels.secure-web = {
+  protocol = "https";
+  port = 443;
+  response_header_add = {
+    "X-Frame-Options" = "DENY";
+    "X-Content-Type-Options" = "nosniff";
+    "Strict-Transport-Security" = "max-age=31536000";
+  };
+};
+```
+
+#### `response_header_remove`
+**Type**: `list of string`  
+**Default**: `[]`
+
+Headers to remove from outgoing responses.
+
+```nix
+services.ngrok.tunnels.clean-web = {
+  protocol = "http";
+  port = 80;
+  response_header_remove = [ "Server" "X-Powered-By" ];
+};
+```
+
+### TLS Options
+
+#### `bind_tls`
+**Type**: `enum`  
+**Default**: `"true"`  
+**Options**: `"true"`, `"false"`, `"both"`
+
+Bind HTTPS, HTTP, or both endpoints.
+
+```nix
+services.ngrok.tunnels.flexible = {
+  protocol = "http";
+  port = 8080;
+  bind_tls = "both"; # Accept both HTTP and HTTPS
+};
+```
+
+#### `crt`
+**Type**: `path` or `null`  
+**Default**: `null`
+
+PEM TLS certificate file for TLS tunnels.
+
+```nix
+services.ngrok.tunnels.custom-tls = {
+  protocol = "tls";
+  port = 8443;
+  crt = "/etc/ssl/certs/tunnel.crt";
+  key = "/etc/ssl/private/tunnel.key";
+};
+```
+
+#### `key`
+**Type**: `path` or `null`  
+**Default**: `null`
+
+PEM TLS private key file for TLS tunnels.
+
+### TCP Options
+
+#### `remote_addr`
+**Type**: `string` or `null`  
+**Default**: `null`
+
+Bind the remote TCP port on the given address.
+
+```nix
+services.ngrok.tunnels.database = {
+  protocol = "tcp";
+  port = 5432;
+  remote_addr = "0.0.0.0:5432";
+};
+```
+
+### Advanced Options
+
+#### `extraArgs`
+**Type**: `list of string`  
+**Default**: `[]`
+
+Extra command-line arguments to pass to ngrok.
+
+```nix
+services.ngrok.tunnels.custom = {
+  protocol = "http";
+  port = 8080;
+  extraArgs = [ "--log-level" "debug" ];
+};
+```
+
+## Example Configurations
+
+### Basic Web Server
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.web = {
+    protocol = "http";
+    port = 8080;
+  };
+};
+```
+
+### Secure Admin Panel
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.admin = {
+    protocol = "https";
+    port = 8443;
+    auth = "admin:secretpassword";
+    ip_restriction_allow_cidrs = [ "10.0.0.0/8" ];
+    response_header_add = {
+      "X-Frame-Options" = "DENY";
+      "X-Content-Type-Options" = "nosniff";
+    };
+    circuit_breaker = 0.1;
+  };
+};
+```
+
+### OAuth-Protected API
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "your-token";
+  tunnels.api = {
+    protocol = "https";
+    port = 3000;
+    hostname = "api.mycompany.com";
+    oauth = {
+      provider = "google";
+      allow_domains = [ "mycompany.com" ];
+      scopes = [ "openid" "email" ];
+    };
+    compression = true;
+    websocket_tcp_converter = true;
+  };
+};
+```
+
+### Enterprise OIDC Setup
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "enterprise-token";
+  region = "us";
+  metadata = "production-v1.0";
+  
+  tunnels.executive = {
+    protocol = "https";
+    port = 8443;
+    hostname = "exec.mycompany.com";
+    
+    oidc = {
+      issuer_url = "https://auth.mycompany.com";
+      client_id = "executive-dashboard";
+      client_secret = "oidc-secret";
+      allow_emails = [ "ceo@mycompany.com" ];
+      scopes = [ "openid" "email" "profile" "groups" ];
+    };
+    
+    mutual_tls_cas = [ "/etc/ssl/certs/company-ca.crt" ];
+    
+    response_header_add = {
+      "Strict-Transport-Security" = "max-age=31536000; includeSubDomains";
+      "X-Frame-Options" = "DENY";
+      "Content-Security-Policy" = "default-src 'self'";
+    };
+    
+    ip_restriction_allow_cidrs = [ "203.0.113.0/24" ];
+    circuit_breaker = 0.05;
+    inspect = false;
+  };
+};
+```
+
+## Validation
+
+The NixOS module includes extensive validation:
+
+- **Type Safety**: All options are type-checked at build time
+- **Value Validation**: Enums and ranges are validated
+- **Dependency Checks**: Required options are enforced
+- **Conflict Detection**: Incompatible options are caught
+
+## See Also
+
+- [Basic Configuration Guide](/config/basic/)
+- [Security Configuration](/config/security/)
+- [Authentication Methods](/auth/oauth/)
+- [Performance Tuning](/config/performance/)

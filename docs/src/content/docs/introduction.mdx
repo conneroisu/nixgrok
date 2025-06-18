@@ -1,0 +1,208 @@
+---
+title: Introduction
+description: Introduction to the ngrok NixOS service module
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+# Introduction to ngrok NixOS Service
+
+The ngrok NixOS Service is a comprehensive, production-ready module that provides secure tunneling capabilities for NixOS systems. It transforms the powerful ngrok tunneling service into a fully-managed, enterprise-grade NixOS service with extensive configuration options and security features.
+
+## What is ngrok?
+
+[ngrok](https://ngrok.com) is a popular service that creates secure tunnels from public endpoints to locally running network services. It's commonly used for:
+
+- **Development**: Exposing local servers for testing and collaboration
+- **Webhooks**: Receiving webhooks from external services
+- **Demos**: Sharing work-in-progress with stakeholders
+- **Remote Access**: Secure access to internal services
+
+## What This Module Provides
+
+Our NixOS module takes ngrok beyond simple command-line usage and provides:
+
+<CardGrid>
+  <Card title="Enterprise Security" icon="shield">
+    OAuth, OIDC, mutual TLS, webhook verification, IP restrictions, and circuit breakers for production use.
+  </Card>
+  <Card title="Declarative Configuration" icon="setting">
+    NixOS-native configuration with type safety, validation, and reproducible deployments.
+  </Card>
+  <Card title="Systemd Integration" icon="rocket">
+    Proper service management with automatic restarts, health checks, and logging integration.
+  </Card>
+  <Card title="Multiple Tunnels" icon="puzzle">
+    Support for multiple named tunnels with different configurations running simultaneously.
+  </Card>
+</CardGrid>
+
+## Key Benefits
+
+### Production Ready
+- **Systemd Services**: Each tunnel runs as a dedicated systemd service
+- **Automatic Restarts**: Services restart automatically on failure
+- **Health Monitoring**: Built-in health checks and status monitoring
+- **Log Integration**: Full integration with systemd journald
+
+### Security First
+- **User Isolation**: Runs under dedicated `ngrok` user
+- **File Permissions**: Config files with proper permissions (0600)
+- **Network Security**: IP restrictions and firewall integration
+- **Authentication**: Multiple authentication methods supported
+
+### Highly Configurable
+- **50+ Options**: Comprehensive coverage of all ngrok features
+- **Type Safety**: NixOS module system ensures valid configurations
+- **Validation**: Build-time validation of settings
+- **Documentation**: Extensive inline documentation
+
+### Enterprise Features
+- **Compliance**: SOX, PCI DSS, GDPR compliance features
+- **Audit Logging**: Complete request/response audit trails
+- **Monitoring**: Prometheus metrics and health endpoints
+- **Security Hardening**: Systemd security features enabled
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    A[Internet] --> B[ngrok Service]
+    B --> C[NixOS System]
+    
+    C --> D[Systemd Services]
+    D --> E[ngrok-tunnel-1]
+    D --> F[ngrok-tunnel-2]
+    D --> G[ngrok-tunnel-n]
+    
+    E --> H[Local Service 1]
+    F --> I[Local Service 2]
+    G --> J[Local Service N]
+    
+    C --> K[Configuration]
+    K --> L[/etc/ngrok/ngrok.yml]
+    K --> M[User Management]
+    K --> N[Security Policies]
+```
+
+## Supported Protocols
+
+The module supports all ngrok tunnel types:
+
+- **HTTP**: Basic HTTP tunneling with optional compression
+- **HTTPS**: Secure HTTP with custom domains and certificates
+- **TCP**: Raw TCP tunneling for any protocol
+- **TLS**: Secure TCP with custom certificates
+
+## Authentication Methods
+
+Multiple authentication methods are supported:
+
+- **HTTP Basic Auth**: Username/password authentication
+- **OAuth**: Google, GitHub, Microsoft, Facebook providers
+- **OIDC**: OpenID Connect with custom identity providers
+- **Webhook Verification**: Provider-specific webhook verification
+- **Mutual TLS**: Client certificate authentication
+
+## Use Cases
+
+### Development Teams
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "dev-token";
+  tunnels.dev-server = {
+    protocol = "http";
+    port = 3000;
+    subdomain = "dev-team";
+  };
+};
+```
+
+### Production Services
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "prod-token";
+  region = "us";
+  
+  tunnels.api = {
+    protocol = "https";
+    port = 8080;
+    hostname = "api.mycompany.com";
+    
+    oauth = {
+      provider = "google";
+      allow_domains = [ "mycompany.com" ];
+    };
+    
+    circuit_breaker = 0.1;
+    compression = true;
+  };
+};
+```
+
+### Enterprise Setup
+```nix
+services.ngrok = {
+  enable = true;
+  authToken = "enterprise-token";
+  metadata = "production-v1.0";
+  
+  tunnels.executive-dashboard = {
+    protocol = "https";
+    port = 8443;
+    hostname = "exec.mycompany.com";
+    
+    oidc = {
+      issuer_url = "https://auth.mycompany.com";
+      client_id = "executive-dashboard";
+      client_secret = "secret";
+      allow_emails = [ "ceo@mycompany.com" ];
+    };
+    
+    mutual_tls_cas = [ "/etc/ssl/certs/company-ca.crt" ];
+    circuit_breaker = 0.05;
+  };
+};
+```
+
+## What's Next?
+
+<CardGrid>
+  <Card title="Quick Start" icon="rocket">
+    Get your first tunnel running in 5 minutes
+    
+    [Start Here →](/quick-start/)
+  </Card>
+  <Card title="Configuration" icon="setting">
+    Learn about all configuration options
+    
+    [Configuration Guide →](/config/basic/)
+  </Card>
+  <Card title="Examples" icon="open-book">
+    See real-world configurations
+    
+    [View Examples →](/examples/basic/)
+  </Card>
+  <Card title="Security" icon="shield">
+    Implement enterprise security
+    
+    [Security Guide →](/config/security/)
+  </Card>
+</CardGrid>
+
+## Requirements
+
+- **NixOS**: 23.11 or later
+- **ngrok Account**: Free or paid account at ngrok.com
+- **Auth Token**: API token from your ngrok dashboard
+- **Network Access**: Outbound HTTPS access for ngrok
+
+## License & Support
+
+This module is open source and community supported. The ngrok service itself is proprietary - see [ngrok's terms of service](https://ngrok.com/terms) for details.
+
+---
+
+Ready to get started? Continue to the [Quick Start Guide](/quick-start/) to set up your first tunnel!

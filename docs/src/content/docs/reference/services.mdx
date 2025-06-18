@@ -1,0 +1,766 @@
+---
+title: Service Management
+description: Managing ngrok systemd services, monitoring, and troubleshooting
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# Service Management
+
+Comprehensive guide to managing ngrok systemd services, monitoring health, and troubleshooting issues.
+
+<Aside type="tip" title="Service Architecture">
+Each ngrok tunnel runs as a separate systemd service, providing isolation, individual monitoring, and independent restart capabilities.
+</Aside>
+
+## Service Architecture
+
+### Service Naming Convention
+
+ngrok services follow a consistent naming pattern:
+
+<CardGrid>
+  <Card title="Main Service" icon="rocket">
+    <Code code="ngrok.service" lang="text" />
+    
+    Master service that manages tunnel configurations
+  </Card>
+  <Card title="Tunnel Services" icon="tunnel">
+    <Code code="ngrok-{tunnel-name}.service" lang="text" />
+    
+    Individual services for each defined tunnel
+  </Card>
+  <Card title="Template Services" icon="copy">
+    <Code code="ngrok@{instance}.service" lang="text" />
+    
+    Template for dynamic tunnel creation
+  </Card>
+</CardGrid>
+
+### Service Hierarchy
+
+```
+ngrok.target
+├── ngrok-web.service        # Web tunnel
+├── ngrok-api.service        # API tunnel  
+├── ngrok-admin.service      # Admin tunnel
+└── ngrok-ssh.service        # SSH tunnel
+```
+
+## Basic Service Operations
+
+### Service Status
+
+<Tabs>
+  <TabItem label="All Services">
+    ```bash
+    # Check all ngrok services
+    systemctl status 'ngrok-*'
+    
+    # List all ngrok services
+    systemctl list-units 'ngrok-*'
+    
+    # Show service tree
+    systemctl list-dependencies ngrok.target
+    ```
+  </TabItem>
+  
+  <TabItem label="Individual Service">
+    ```bash
+    # Check specific tunnel
+    systemctl status ngrok-web
+    
+    # Detailed status
+    systemctl show ngrok-web
+    
+    # Check if service is enabled
+    systemctl is-enabled ngrok-web
+    
+    # Check if service is active
+    systemctl is-active ngrok-web
+    ```
+  </TabItem>
+  
+  <TabItem label="Service Properties">
+    ```bash
+    # Show service configuration
+    systemctl cat ngrok-web
+    
+    # Show runtime properties
+    systemctl show ngrok-web --property=MainPID,ActiveState,SubState
+    
+    # Show service dependencies
+    systemctl list-dependencies ngrok-web
+    ```
+  </TabItem>
+</Tabs>
+
+### Service Control
+
+<Steps>
+1. **Start Services**
+   
+   ```bash
+   # Start all ngrok services
+   sudo systemctl start ngrok.target
+   
+   # Start individual service
+   sudo systemctl start ngrok-web
+   
+   # Start multiple services
+   sudo systemctl start ngrok-web ngrok-api
+   ```
+
+2. **Stop Services**
+   
+   ```bash
+   # Stop all ngrok services
+   sudo systemctl stop ngrok.target
+   
+   # Stop individual service
+   sudo systemctl stop ngrok-web
+   
+   # Force stop if unresponsive
+   sudo systemctl kill ngrok-web
+   ```
+
+3. **Restart Services**
+   
+   ```bash
+   # Restart after configuration changes
+   sudo systemctl restart ngrok-web
+   
+   # Reload configuration without restart
+   sudo systemctl reload ngrok-web
+   
+   # Restart if running, start if stopped
+   sudo systemctl try-restart ngrok-web
+   ```
+
+4. **Enable/Disable Auto-start**
+   
+   ```bash
+   # Enable auto-start at boot
+   sudo systemctl enable ngrok-web
+   
+   # Disable auto-start
+   sudo systemctl disable ngrok-web
+   
+   # Enable and start immediately
+   sudo systemctl enable --now ngrok-web
+   ```
+</Steps>
+
+## Log Management
+
+### Viewing Logs
+
+<Tabs>
+  <TabItem label="Real-time Logs">
+    ```bash
+    # Follow logs for all ngrok services
+    journalctl -f -u 'ngrok-*'
+    
+    # Follow specific service logs
+    journalctl -f -u ngrok-web
+    
+    # Follow with custom format
+    journalctl -f -u ngrok-web -o short-precise
+    ```
+  </TabItem>
+  
+  <TabItem label="Historical Logs">
+    ```bash
+    # Show recent logs
+    journalctl -u ngrok-web --since "1 hour ago"
+    
+    # Show logs from today
+    journalctl -u ngrok-web --since today
+    
+    # Show last 100 lines
+    journalctl -u ngrok-web -n 100
+    
+    # Show logs between dates
+    journalctl -u ngrok-web --since "2024-01-01" --until "2024-01-02"
+    ```
+  </TabItem>
+  
+  <TabItem label="Log Analysis">
+    ```bash
+    # Search for errors
+    journalctl -u ngrok-web | grep -i error
+    
+    # Search for tunnel URLs
+    journalctl -u ngrok-web | grep "started tunnel"
+    
+    # Count log entries by level
+    journalctl -u ngrok-web --no-pager | awk '{print $6}' | sort | uniq -c
+    
+    # Export logs to file
+    journalctl -u ngrok-web --no-pager > ngrok-web.log
+    ```
+  </TabItem>
+</Tabs>
+
+### Log Configuration
+
+```nix title="logging-config.nix"
+{
+  # Configure systemd journald for ngrok logs
+  services.journald.extraConfig = ''
+    # Storage configuration
+    Storage=persistent
+    SystemMaxUse=1G
+    SystemMaxFileSize=100M
+    
+    # Retention policy
+    MaxRetentionSec=2592000  # 30 days
+    MaxFileSec=86400         # 1 day per file
+    
+    # Rate limiting
+    RateLimitInterval=30s
+    RateLimitBurst=10000
+  '';
+  
+  # Per-service log configuration
+  systemd.services."ngrok-web" = {
+    serviceConfig = {
+      # Structured logging
+      StandardOutput = "journal";
+      StandardError = "journal";
+      SyslogIdentifier = "ngrok-web";
+      
+      # Log level
+      Environment = [ "NGROK_LOG_LEVEL=info" ];
+    };
+  };
+}
+```
+
+## Health Monitoring
+
+### Service Health Checks
+
+<Tabs>
+  <TabItem label="Basic Health">
+    ```bash title="health-check.sh"
+    #!/bin/bash
+    
+    # Check service health
+    check_service_health() {
+        local service="$1"
+        
+        echo "Checking $service..."
+        
+        # Check if service is active
+        if systemctl is-active "$service" >/dev/null 2>&1; then
+            echo "✓ $service is active"
+        else
+            echo "✗ $service is not active"
+            return 1
+        fi
+        
+        # Check if service is enabled
+        if systemctl is-enabled "$service" >/dev/null 2>&1; then
+            echo "✓ $service is enabled"
+        else
+            echo "⚠ $service is not enabled"
+        fi
+        
+        # Check recent failures
+        local failures
+        failures=$(systemctl show "$service" --property=NRestarts --value)
+        if [ "$failures" -gt 0 ]; then
+            echo "⚠ $service has restarted $failures times"
+        fi
+    }
+    
+    # Check all ngrok services
+    for service in $(systemctl list-units 'ngrok-*' --no-legend | awk '{print $1}'); do
+        check_service_health "$service"
+        echo
+    done
+    ```
+  </TabItem>
+  
+  <TabItem label="Tunnel Health">
+    ```bash title="tunnel-health.sh"
+    #!/bin/bash
+    
+    # Check tunnel connectivity
+    check_tunnel_health() {
+        local service="$1"
+        
+        echo "Checking tunnel health for $service..."
+        
+        # Get tunnel URL from logs
+        local tunnel_url
+        tunnel_url=$(journalctl -u "$service" --no-pager | \
+                    grep "started tunnel" | tail -1 | \
+                    grep -o 'https\?://[^ ]*' | head -1)
+        
+        if [ -z "$tunnel_url" ]; then
+            echo "✗ No tunnel URL found for $service"
+            return 1
+        fi
+        
+        echo "Tunnel URL: $tunnel_url"
+        
+        # Test tunnel connectivity
+        if curl -s -f -m 10 "$tunnel_url" >/dev/null; then
+            echo "✓ Tunnel is accessible"
+        else
+            echo "✗ Tunnel is not accessible"
+            return 1
+        fi
+        
+        # Check response time
+        local response_time
+        response_time=$(curl -s -w "%{time_total}" -o /dev/null "$tunnel_url")
+        echo "Response time: ${response_time}s"
+        
+        # Warn if slow
+        if (( $(echo "$response_time > 2.0" | bc -l) )); then
+            echo "⚠ Slow response time"
+        fi
+    }
+    
+    # Check all tunnel services
+    for service in $(systemctl list-units 'ngrok-*' --no-legend | awk '{print $1}'); do
+        check_tunnel_health "$service"
+        echo
+    done
+    ```
+  </TabItem>
+  
+  <TabItem label="Resource Usage">
+    ```bash title="resource-check.sh"
+    #!/bin/bash
+    
+    # Check resource usage
+    check_resource_usage() {
+        local service="$1"
+        
+        echo "Resource usage for $service:"
+        
+        # Get process info
+        local pid
+        pid=$(systemctl show "$service" --property=MainPID --value)
+        
+        if [ "$pid" = "0" ] || [ -z "$pid" ]; then
+            echo "✗ Service not running"
+            return 1
+        fi
+        
+        # Memory usage
+        local memory_kb
+        memory_kb=$(ps -o rss= -p "$pid" 2>/dev/null || echo "0")
+        local memory_mb=$((memory_kb / 1024))
+        echo "Memory: ${memory_mb}MB"
+        
+        # CPU usage (over last 5 seconds)
+        local cpu_usage
+        cpu_usage=$(ps -o %cpu= -p "$pid" 2>/dev/null || echo "0")
+        echo "CPU: ${cpu_usage}%"
+        
+        # File descriptors
+        local fd_count
+        if [ -d "/proc/$pid/fd" ]; then
+            fd_count=$(ls /proc/$pid/fd | wc -l)
+            echo "File descriptors: $fd_count"
+        fi
+        
+        # Network connections
+        local conn_count
+        conn_count=$(lsof -p "$pid" 2>/dev/null | grep -c 'TCP\|UDP' || echo "0")
+        echo "Network connections: $conn_count"
+    }
+    
+    # Check all ngrok services
+    for service in $(systemctl list-units 'ngrok-*' --no-legend | awk '{print $1}'); do
+        check_resource_usage "$service"
+        echo
+    done
+    ```
+  </TabItem>
+</Tabs>
+
+### Automated Monitoring
+
+```nix title="monitoring.nix"
+{
+  # Health check service
+  systemd.services.ngrok-health-check = {
+    description = "ngrok Health Check";
+    script = ''
+      #!/bin/bash
+      
+      FAILED_SERVICES=()
+      
+      # Check each ngrok service
+      for service in $(systemctl list-units 'ngrok-*' --no-legend | awk '{print $1}'); do
+          if ! systemctl is-active "$service" >/dev/null; then
+              FAILED_SERVICES+=("$service")
+          fi
+      done
+      
+      # Alert if any services are down
+      if [ ''${#FAILED_SERVICES[@]} -gt 0 ]; then
+          echo "CRITICAL: ngrok services down: ''${FAILED_SERVICES[*]}"
+          logger -t ngrok-health "CRITICAL: Services down: ''${FAILED_SERVICES[*]}"
+          exit 1
+      else
+          echo "OK: All ngrok services are running"
+          exit 0
+      fi
+    '';
+    
+    serviceConfig = {
+      Type = "oneshot";
+      User = "nagios";  # Or your monitoring user
+    };
+  };
+  
+  # Timer for regular health checks
+  systemd.timers.ngrok-health-check = {
+    description = "Run ngrok health check";
+    wantedBy = [ "timers.target" ];
+    
+    timerConfig = {
+      OnCalendar = "*:0/5";  # Every 5 minutes
+      Persistent = true;
+    };
+  };
+}
+```
+
+## Performance Tuning
+
+### Service Optimization
+
+<Tabs>
+  <TabItem label="Resource Limits">
+    ```nix
+    # Optimize service resources
+    systemd.services."ngrok-web" = {
+      serviceConfig = {
+        # Memory limits
+        MemoryLimit = "512M";
+        MemoryHigh = "400M";
+        
+        # CPU limits
+        CPUQuota = "100%";         # Max 1 CPU core
+        CPUShares = 1024;          # Default priority
+        
+        # I/O limits
+        IOSchedulingClass = 2;      # Best effort
+        IOSchedulingPriority = 4;   # Normal priority
+        
+        # Process limits
+        LimitNOFILE = 32768;       # File descriptors
+        LimitNPROC = 1024;         # Number of processes
+        
+        # Nice value (process priority)
+        Nice = 0;                  # Normal priority
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="High Performance">
+    ```nix
+    # High-performance configuration
+    systemd.services."ngrok-production" = {
+      serviceConfig = {
+        # High priority
+        Nice = -10;
+        IOSchedulingClass = 1;      # Real-time
+        CPUSchedulingPolicy = 1;    # FIFO
+        
+        # More resources
+        MemoryLimit = "2G";
+        CPUQuota = "300%";         # Up to 3 cores
+        
+        # CPU affinity (bind to specific cores)
+        CPUAffinity = "0-3";
+        
+        # Restart quickly on failure
+        Restart = "always";
+        RestartSec = "1";
+        
+        # Watchdog
+        WatchdogSec = "30";
+        NotifyAccess = "main";
+      };
+    };
+    ```
+  </TabItem>
+  
+  <TabItem label="Resource Monitoring">
+    ```nix
+    # Enable resource accounting
+    systemd.services."ngrok-web" = {
+      serviceConfig = {
+        # Enable accounting
+        CPUAccounting = true;
+        MemoryAccounting = true;
+        IOAccounting = true;
+        
+        # Collect statistics
+        CollectMode = "inactive-or-failed";
+      };
+    };
+    
+    # Script to show resource usage
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "ngrok-stats" ''
+        echo "ngrok Service Resource Usage:"
+        echo "============================="
+        
+        for service in $(systemctl list-units 'ngrok-*' --no-legend | awk '{print $1}'); do
+            echo "\n$service:"
+            systemctl show "$service" \
+                --property=CPUUsageNSec,MemoryCurrent,TasksCurrent \
+                --value | \
+            while IFS= read -r line; do
+                case $line in
+                    *CPUUsageNSec*) echo "  CPU: $(echo "$line" | awk '{print $1/1000000000 \" seconds\"}')" ;;
+                    *MemoryCurrent*) echo "  Memory: $(echo "$line" | awk '{print $1/1024/1024 \" MB\"}')" ;;
+                    *TasksCurrent*) echo "  Tasks: $line" ;;
+                esac
+            done
+        done
+      '')
+    ];
+    ```
+  </TabItem>
+</Tabs>
+
+## Troubleshooting
+
+### Common Service Issues
+
+<CardGrid>
+  <Card title="Service Won't Start" icon="error">
+    **Symptoms**:
+    - `systemctl start` fails
+    - Service shows "failed" status
+    
+    **Debug Steps**:
+    ```bash
+    # Check detailed status
+    systemctl status ngrok-web -l
+    
+    # Check logs
+    journalctl -u ngrok-web --since "5 minutes ago"
+    
+    # Test configuration
+    sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml config check
+    
+    # Check file permissions
+    ls -la /etc/ngrok/
+    ```
+  </Card>
+  
+  <Card title="Service Keeps Restarting" icon="warning">
+    **Symptoms**:
+    - High restart count
+    - Service cycling between active/failed
+    
+    **Debug Steps**:
+    ```bash
+    # Check restart count
+    systemctl show ngrok-web --property=NRestarts
+    
+    # Check exit codes
+    journalctl -u ngrok-web | grep "Main process exited"
+    
+    # Increase restart delay
+    systemctl edit ngrok-web
+    # Add: RestartSec=30
+    ```
+  </Card>
+  
+  <Card title="High Resource Usage" icon="rocket">
+    **Symptoms**:
+    - High CPU or memory usage
+    - System becomes slow
+    
+    **Debug Steps**:
+    ```bash
+    # Check resource usage
+    systemctl status ngrok-web
+    
+    # Monitor with top
+    top -p $(systemctl show ngrok-web --property=MainPID --value)
+    
+    # Check for memory leaks
+    valgrind --tool=memcheck ngrok ...
+    ```
+  </Card>
+  
+  <Card title="Network Connectivity" icon="network">
+    **Symptoms**:
+    - Tunnels not accessible
+    - Authentication failures
+    
+    **Debug Steps**:
+    ```bash
+    # Test ngrok connectivity
+    curl -v https://ngrok.com
+    
+    # Check firewall
+    iptables -L | grep ngrok
+    
+    # Test auth token
+    ngrok authtoken $NGROK_TOKEN
+    ngrok config check
+    ```
+  </Card>
+</CardGrid>
+
+### Advanced Debugging
+
+<Tabs>
+  <TabItem label="Systemd Debug">
+    ```bash
+    # Enable debug logging for systemd
+    sudo systemctl log-level debug
+    
+    # Start service with debug
+    sudo SYSTEMD_LOG_LEVEL=debug systemctl start ngrok-web
+    
+    # Check cgroup info
+    systemctl show ngrok-web --property=ControlGroup
+    cat /sys/fs/cgroup/system.slice/ngrok-web.service/cgroup.procs
+    
+    # Check service dependencies
+    systemctl list-dependencies ngrok-web --all
+    ```
+  </TabItem>
+  
+  <TabItem label="Process Debug">
+    ```bash
+    # Get process info
+    PID=$(systemctl show ngrok-web --property=MainPID --value)
+    
+    # Process tree
+    pstree -p $PID
+    
+    # Open files
+    lsof -p $PID
+    
+    # Network connections
+    netstat -tnlp | grep $PID
+    ss -tnlp | grep $PID
+    
+    # System calls
+    strace -p $PID -f -e trace=network
+    ```
+  </TabItem>
+  
+  <TabItem label="Configuration Debug">
+    ```bash
+    # Validate configuration
+    sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml config check
+    
+    # Test with minimal config
+    cat > /tmp/test-ngrok.yml << EOF
+    version: 2
+    authtoken: $NGROK_TOKEN
+    tunnels:
+      test:
+        proto: http
+        addr: 8080
+    EOF
+    
+    ngrok --config=/tmp/test-ngrok.yml start test
+    
+    # Check environment
+    sudo -u ngrok env
+    systemctl show-environment
+    ```
+  </TabItem>
+</Tabs>
+
+## Service Automation
+
+### Auto-restart on Failure
+
+```nix
+# Robust restart configuration
+systemd.services."ngrok-web" = {
+  serviceConfig = {
+    # Restart policies
+    Restart = "always";
+    RestartSec = "10";          # Wait 10s before restart
+    StartLimitInterval = "300"; # Reset counter every 5 min
+    StartLimitBurst = "5";      # Max 5 restarts in interval
+    
+    # Watchdog
+    WatchdogSec = "60";         # Expect heartbeat every 60s
+    
+    # Exit handling
+    SuccessExitStatus = "0 1 2"; # Consider these codes as success
+    RestartPreventExitStatus = "3"; # Don't restart on exit code 3
+  };
+};
+```
+
+### Service Orchestration
+
+```nix
+# Dependency management
+systemd.services."ngrok-web" = {
+  # Dependencies
+  wants = [ "network-online.target" ];
+  after = [ "network-online.target" "web-app.service" ];
+  before = [ "nginx.service" ];
+  
+  # Conflicts
+  conflicts = [ "ngrok-web-backup.service" ];
+  
+  # Binding
+  bindsTo = [ "web-app.service" ];  # Stop if web-app stops
+  partOf = [ "web-stack.target" ];  # Part of larger service group
+};
+
+# Service group target
+systemd.targets.web-stack = {
+  description = "Web Application Stack";
+  wants = [
+    "web-app.service"
+    "ngrok-web.service"
+    "nginx.service"
+  ];
+};
+```
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard
+    title="Configuration Reference"
+    description="Complete ngrok configuration options"
+    href="/reference/options/"
+  />
+  <LinkCard
+    title="CLI Commands"
+    description="Command-line tools and scripts"
+    href="/reference/cli/"
+  />
+  <LinkCard
+    title="Production Setup"
+    description="Deploy with monitoring and high availability"
+    href="/deployment/production/"
+  />
+  <LinkCard
+    title="Troubleshooting Guide"
+    description="Diagnose and resolve common issues"
+    href="/deployment/troubleshooting/"
+  />
+</CardGrid>
+
+---
+
+Effective service management ensures reliable ngrok tunnel operation with proper monitoring, health checks, and automated recovery procedures.
