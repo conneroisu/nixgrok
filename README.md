@@ -219,6 +219,81 @@ journalctl -u ngrok-web -f
 3. Copy your auth token
 4. Replace `YOUR_NGROK_AUTH_TOKEN_HERE` in the configuration
 
+## Flake-Parts Integration
+
+This repository provides a flake-parts implementation for better modularity and composability:
+
+### Using flake-parts
+
+```bash
+# Use the flake-parts version
+nix develop -f flake-parts.nix
+
+# Check flake-parts configuration
+nix flake check -f flake-parts.nix --impure
+```
+
+### Available Templates
+
+The flake provides several templates for different use cases:
+
+```bash
+# Basic ngrok setup
+nix flake init -t github:yourusername/nixgrok#basic
+
+# Advanced features with security
+nix flake init -t github:yourusername/nixgrok#advanced
+
+# OAuth-protected tunnels
+nix flake init -t github:yourusername/nixgrok#oauth
+
+# Enterprise-grade setup
+nix flake init -t github:yourusername/nixgrok#enterprise
+```
+
+### Template Overview
+
+| Template | Description | Features |
+|----------|-------------|----------|
+| `basic` | Simple HTTP tunnel | Basic web server, minimal config |
+| `advanced` | Multi-service setup | Multiple tunnels, security headers, rate limiting |
+| `oauth` | OAuth integration | Google/GitHub/Microsoft/Facebook auth |
+| `enterprise` | Production setup | OIDC, mutual TLS, compliance features |
+
+### Modular Parts
+
+The flake-parts implementation splits functionality into modules:
+
+- **`parts/ngrok-module.nix`** - Core ngrok module exports
+- **`parts/dev-shells.nix`** - Development environments  
+- **`parts/nixos-configs.nix`** - Example NixOS configurations
+- **`parts/packages.nix`** - Package exports and documentation
+
+### Using in Your Flake
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    ngrok-nixos.url = "github:yourusername/nixgrok";
+  };
+
+  outputs = inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      
+      flake.nixosConfigurations.my-server = inputs.nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          inputs.ngrok-nixos.nixosModules.default
+          ./configuration.nix
+        ];
+      };
+    };
+}
+```
+
 ## Testing with aarch64 Linux VM
 
 This flake includes comprehensive VM testing capabilities for testing the ngrok service on aarch64 Linux from macOS ARM.

@@ -1,0 +1,557 @@
+---
+title: Flake-Parts Overview
+description: Modular ngrok configurations with flake-parts
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Flake-Parts Overview
+
+Flake-parts provides a modular approach to organizing Nix flakes, making them more maintainable and reusable. This guide shows how to use ngrok with flake-parts for better project organization.
+
+## What is Flake-Parts?
+
+[Flake-parts](https://flake.parts) is a framework for writing Nix flakes in a modular way. Instead of having one large flake.nix file, you can split your configuration into focused, reusable modules.
+
+<CardGrid>
+  <Card title="Modularity" icon="puzzle">
+    Split large configurations into focused modules
+  </Card>
+  <Card title="Reusability" icon="recycle">
+    Share modules across different projects
+  </Card>
+  <Card title="Maintainability" icon="setting">
+    Easier to understand and modify configurations
+  </Card>
+  <Card title="Composability" icon="building">
+    Combine modules to create complex setups
+  </Card>
+</CardGrid>
+
+## Basic Setup
+
+### Project Structure
+
+```
+my-ngrok-project/
+├── flake.nix           # Main flake with flake-parts
+├── flake.lock          # Locked dependencies
+├── parts/              # Flake-parts modules
+│   ├── ngrok.nix       # ngrok configuration
+│   ├── services.nix    # Application services
+│   └── development.nix # Development tools
+└── configuration.nix   # NixOS configuration
+```
+
+### Main Flake Configuration
+
+```nix title="flake.nix"
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    ngrok-nixos.url = "github:yourusername/nixgrok";
+  };
+
+  outputs = inputs @ { flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      # Import our modular parts
+      imports = [
+        ./parts/ngrok.nix
+        ./parts/services.nix
+        ./parts/development.nix
+      ];
+
+      # Supported systems
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+
+      # Per-system outputs
+      perSystem = { config, self', inputs', pkgs, system, ... }: {
+        # Development shells, packages, etc.
+      };
+
+      # Flake-level outputs
+      flake = {
+        # NixOS configurations
+        nixosConfigurations.myhost = inputs.nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            inputs.ngrok-nixos.nixosModules.default
+            ./configuration.nix
+          ];
+        };
+      };
+    };
+}
+```
+
+## Modular Configuration
+
+### ngrok Module
+
+```nix title="parts/ngrok.nix"
+{ inputs, ... }:
+{
+  flake.nixosModules.ngrok-config = {
+    config,
+    lib,
+    pkgs,
+    ...
+  }: {
+    # Enable unfree packages for ngrok
+    nixpkgs.config.allowUnfree = true;
+    
+    services.ngrok = {
+      enable = true;
+      authToken = builtins.readFile "/run/secrets/ngrok-token";
+      region = "us";
+      metadata = "flake-parts-deployment";
+      
+      tunnels = {
+        web = {
+          protocol = "https";
+          port = 8080;
+          subdomain = "myapp";
+          compression = true;
+        };
+        
+        api = {
+          protocol = "https";
+          port = 3000;
+          subdomain = "myapp-api";
+          
+          response_header_add = {
+            "Access-Control-Allow-Origin" = "*";
+            "X-API-Version" = "v1.0";
+          };
+        };
+      };
+    };
+  };
+}
+```
+
+### Services Module
+
+```nix title="parts/services.nix"
+{ inputs, ... }:
+{
+  flake.nixosModules.app-services = {
+    config,
+    lib,
+    pkgs,
+    ...
+  }: {
+    # Web application service
+    systemd.services.web-app = {
+      enable = true;
+      description = "Web Application";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" "postgresql.service" ];
+      
+      serviceConfig = {
+        Type = "simple";
+        User = "webapp";
+        Group = "webapp";
+        ExecStart = "${pkgs.nodejs}/bin/node /var/lib/webapp/server.js";
+        Environment = [
+          "NODE_ENV=production"
+          "PORT=8080"
+          "DATABASE_URL=postgresql://webapp@localhost/webapp"
+        ];
+        Restart = "always";
+        RestartSec = "5";
+      };
+    };
+    
+    # API service
+    systemd.services.api-service = {
+      enable = true;
+      description = "API Service";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" "postgresql.service" ];
+      
+      serviceConfig = {
+        Type = "simple";
+        User = "webapp";
+        Group = "webapp";
+        ExecStart = "${pkgs.python3.withPackages (ps: [ ps.flask ps.psycopg2 ])}/bin/python /var/lib/webapp/api.py";
+        Environment = [
+          "FLASK_ENV=production"
+          "PORT=3000"
+        ];
+        Restart = "always";
+        RestartSec = "5";
+      };
+    };
+    
+    # Database
+    services.postgresql = {
+      enable = true;
+      ensureDatabases = [ "webapp" ];
+      ensureUsers = [{
+        name = "webapp";
+        ensurePermissions = {
+          "DATABASE webapp" = "ALL PRIVILEGES";
+        };
+      }];
+    };
+    
+    # User and group
+    users.users.webapp = {
+      isSystemUser = true;
+      group = "webapp";
+      home = "/var/lib/webapp";
+      createHome = true;
+    };
+    users.groups.webapp = {};
+    
+    # Firewall
+    networking.firewall.allowedTCPPorts = [ 3000 8080 ];
+  };
+}
+```
+
+### Development Module
+
+```nix title="parts/development.nix"
+{ inputs, ... }:
+{
+  perSystem = { config, self', inputs', pkgs, system, ... }: {
+    # Development shell
+    devShells.default = pkgs.mkShell {
+      buildInputs = with pkgs; [
+        # Core tools
+        git
+        curl
+        jq
+        
+        # Language runtimes
+        nodejs
+        python3
+        
+        # Database tools
+        postgresql
+        
+        # ngrok for local development
+        ngrok
+      ];
+      
+      shellHook = ''
+        echo "🚀 Development environment loaded!"
+        echo "📋 Available commands:"
+        echo "  - npm run dev     : Start development server"
+        echo "  - ngrok http 3000 : Expose local server"
+        echo "  - psql webapp     : Connect to database"
+      '';
+    };
+    
+    # Development packages
+    packages = {
+      deploy = pkgs.writeShellScriptBin "deploy" ''
+        echo "🚀 Deploying application..."
+        sudo nixos-rebuild switch --flake .#myhost
+        echo "✅ Deployment complete!"
+        
+        echo "📊 Service status:"
+        systemctl status ngrok-web ngrok-api web-app api-service
+      '';
+      
+      logs = pkgs.writeShellScriptBin "logs" ''
+        echo "📋 ngrok tunnel URLs:"
+        journalctl -u ngrok-web -n 1 | grep "started tunnel" || echo "No web tunnel"
+        journalctl -u ngrok-api -n 1 | grep "started tunnel" || echo "No API tunnel"
+        
+        echo "\n📊 Recent logs:"
+        journalctl -u ngrok-web -u ngrok-api -u web-app -u api-service -n 20
+      '';
+    };
+  };
+}
+```
+
+## Using the Modular Setup
+
+### Configuration Integration
+
+```nix title="configuration.nix"
+{ config, lib, pkgs, ... }:
+{
+  imports = [
+    # Import our modular configurations
+    config.flake.nixosModules.ngrok-config
+    config.flake.nixosModules.app-services
+  ];
+  
+  # System-specific configuration
+  system.stateVersion = "23.11";
+  
+  # Network configuration
+  networking = {
+    hostName = "myapp-server";
+    firewall.enable = true;
+  };
+  
+  # Security
+  security.sudo.wheelNeedsPassword = false;
+  
+  # User accounts
+  users.users.admin = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" ];
+    openssh.authorizedKeys.keys = [
+      "ssh-rsa AAAAB3NzaC1yc2E... your-key"
+    ];
+  };
+  
+  # SSH access
+  services.openssh = {
+    enable = true;
+    settings.PasswordAuthentication = false;
+  };
+}
+```
+
+### Development Workflow
+
+```bash
+# Enter development shell
+nix develop
+
+# Deploy to local system
+nix run .#deploy
+
+# View logs and tunnel URLs
+nix run .#logs
+
+# Build specific configurations
+nix build .#nixosConfigurations.myhost.config.system.build.toplevel
+```
+
+## Advanced Patterns
+
+### Conditional Configuration
+
+```nix title="parts/ngrok.nix"
+{ inputs, ... }:
+{
+  flake.nixosModules.ngrok-config = {
+    config,
+    lib,
+    pkgs,
+    ...
+  }: {
+    options.myapp = {
+      environment = lib.mkOption {
+        type = lib.types.enum [ "development" "staging" "production" ];
+        default = "development";
+        description = "Deployment environment";
+      };
+    };
+    
+    config = {
+      services.ngrok = {
+        enable = true;
+        authToken = builtins.readFile "/run/secrets/ngrok-token";
+        
+        # Environment-specific configuration
+        region = if config.myapp.environment == "production" then "us" else "eu";
+        metadata = "${config.myapp.environment}-deployment";
+        
+        tunnels = lib.mkMerge [
+          # Always present
+          {
+            web = {
+              protocol = "https";
+              port = 8080;
+              subdomain = "myapp-${config.myapp.environment}";
+            };
+          }
+          
+          # Development only
+          (lib.mkIf (config.myapp.environment == "development") {
+            debug = {
+              protocol = "http";
+              port = 9000;
+              subdomain = "myapp-debug";
+            };
+          })
+          
+          # Production only
+          (lib.mkIf (config.myapp.environment == "production") {
+            api = {
+              protocol = "https";
+              port = 3000;
+              hostname = "api.myapp.com";
+              
+              oauth = {
+                provider = "google";
+                allow_domains = [ "mycompany.com" ];
+              };
+            };
+          })
+        ];
+      };
+    };
+  };
+}
+```
+
+### Multiple Environments
+
+```nix title="flake.nix"
+{
+  # ... inputs ...
+  
+  outputs = inputs @ { flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [ ./parts/ngrok.nix ./parts/services.nix ];
+      systems = [ "x86_64-linux" ];
+      
+      flake = {
+        nixosConfigurations = {
+          # Development environment
+          development = inputs.nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              inputs.ngrok-nixos.nixosModules.default
+              ./configuration.nix
+              { myapp.environment = "development"; }
+            ];
+          };
+          
+          # Staging environment
+          staging = inputs.nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              inputs.ngrok-nixos.nixosModules.default
+              ./configuration.nix
+              { myapp.environment = "staging"; }
+            ];
+          };
+          
+          # Production environment
+          production = inputs.nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              inputs.ngrok-nixos.nixosModules.default
+              ./configuration.nix
+              { myapp.environment = "production"; }
+            ];
+          };
+        };
+      };
+    };
+}
+```
+
+### Shared Modules
+
+Create reusable modules for common patterns:
+
+```nix title="parts/shared/web-app.nix"
+{ lib, ... }:
+{
+  options.myapp.webApp = {
+    enable = lib.mkEnableOption "web application";
+    port = lib.mkOption {
+      type = lib.types.port;
+      default = 8080;
+    };
+    subdomain = lib.mkOption {
+      type = lib.types.str;
+      default = "app";
+    };
+  };
+  
+  config = lib.mkIf config.myapp.webApp.enable {
+    services.ngrok.tunnels.web = {
+      protocol = "https";
+      port = config.myapp.webApp.port;
+      subdomain = config.myapp.webApp.subdomain;
+      compression = true;
+    };
+    
+    systemd.services.web-app = {
+      enable = true;
+      description = "Web Application";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = "${pkgs.python3}/bin/python -m http.server ${toString config.myapp.webApp.port}";
+        Restart = "always";
+      };
+    };
+    
+    networking.firewall.allowedTCPPorts = [ config.myapp.webApp.port ];
+  };
+}
+```
+
+## Benefits of Flake-Parts
+
+<CardGrid>
+  <Card title="Organization" icon="folder">
+    **Clear Structure**: Related configuration grouped together
+    
+    **Easy Navigation**: Find specific settings quickly
+    
+    **Logical Separation**: ngrok, services, and development tools in separate files
+  </Card>
+  
+  <Card title="Reusability" icon="recycle">
+    **Shared Modules**: Reuse common patterns across projects
+    
+    **Environment Templates**: Copy proven configurations
+    
+    **Team Sharing**: Distribute modules within organization
+  </Card>
+  
+  <Card title="Maintainability" icon="setting">
+    **Focused Changes**: Modify specific functionality without affecting others
+    
+    **Easy Testing**: Test individual modules in isolation
+    
+    **Clear Dependencies**: Understand what depends on what
+  </Card>
+  
+  <Card title="Scalability" icon="rocket">
+    **Growing Projects**: Add new modules as project grows
+    
+    **Team Development**: Multiple developers work on different modules
+    
+    **Complex Deployments**: Handle multi-environment setups
+  </Card>
+</CardGrid>
+
+## Next Steps
+
+<CardGrid>
+  <Card title="Templates" icon="copy">
+    Use pre-built templates for common scenarios
+    
+    [Flake-Parts Templates →](/flake-parts/templates/)
+  </Card>
+  
+  <Card title="Modules" icon="puzzle">
+    Learn about creating custom modules
+    
+    [Module Development →](/flake-parts/modules/)
+  </Card>
+  
+  <Card title="Usage Patterns" icon="pattern">
+    Common patterns and best practices
+    
+    [Usage Patterns →](/flake-parts/usage/)
+  </Card>
+  
+  <Card title="Examples" icon="open-book">
+    See complete flake-parts examples
+    
+    [Advanced Examples →](/examples/advanced/)
+  </Card>
+</CardGrid>
+
+---
+
+Flake-parts makes ngrok configurations more maintainable and reusable, especially for complex deployments with multiple services and environments.

@@ -1,0 +1,272 @@
+---
+title: ngrok NixOS Service
+description: A comprehensive NixOS service module for ngrok tunneling with enterprise features
+template: splash
+hero:
+  tagline: Secure, scalable ngrok tunnels for NixOS with enterprise-grade features
+  image:
+    file: ../../assets/houston.webp
+  actions:
+    - text: Get Started
+      link: /quick-start/
+      icon: right-arrow
+      variant: primary
+    - text: View Examples
+      link: /examples/basic/
+      icon: external
+---
+
+import { Card, CardGrid, Badge, Code, FileTree, LinkCard, Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Why ngrok NixOS Service?
+
+<CardGrid stagger>
+  <Card title="🔒 Enterprise Security" icon="shield">
+    Full OAuth, OIDC, mutual TLS, and webhook verification support with IP restrictions and circuit breakers.
+  </Card>
+  <Card title="⚡ High Performance" icon="rocket">
+    Compression, WebSocket conversion, header manipulation, and request inspection with systemd integration.
+  </Card>
+  <Card title="🔧 Highly Configurable" icon="setting">
+    Over 50 configuration options covering every ngrok feature with type-safe NixOS modules.
+  </Card>
+  <Card title="🎯 Production Ready" icon="approve-check">
+    Tested in production with monitoring, logging, health checks, and automatic service management.
+  </Card>
+</CardGrid>
+
+## Features
+
+<Tabs>
+  <TabItem label="Core Features">
+    <CardGrid>
+      <Card title="Multiple Tunnels" icon="puzzle">
+        Support for HTTP, HTTPS, TCP, and TLS protocols with simultaneous tunnel management
+      </Card>
+      <Card title="Systemd Integration" icon="rocket">
+        Proper service management with automatic restarts and health monitoring
+      </Card>
+      <Card title="Cross-Platform" icon="laptop">
+        Works on x86_64-linux and aarch64-linux architectures
+      </Card>
+      <Card title="Regional Support" icon="globe">
+        Choose from <Badge text="7 regions" variant="tip" /> worldwide: US, EU, AU, AP, SA, JP, IN
+      </Card>
+    </CardGrid>
+  </TabItem>
+  
+  <TabItem label="Security & Auth">
+    <CardGrid>
+      <Card title="HTTP Basic Auth" icon="key">
+        Username/password authentication for simple setups
+      </Card>
+      <Card title="OAuth Integration" icon="user">
+        <Badge text="4 providers" variant="success" /> Google, GitHub, Microsoft, Facebook
+      </Card>
+      <Card title="OIDC Support" icon="shield">
+        OpenID Connect with custom identity providers for enterprise
+      </Card>
+      <Card title="Webhook Verification" icon="approve-check">
+        <Badge text="8 providers" variant="note" /> Slack, SNS, Stripe, GitHub, Twilio, Shopify, Zoom, Svix
+      </Card>
+      <Card title="Mutual TLS" icon="certificate">
+        Client certificate authentication for maximum security
+      </Card>
+      <Card title="IP Restrictions" icon="network">
+        Allow/deny specific CIDR blocks with granular control
+      </Card>
+    </CardGrid>
+  </TabItem>
+  
+  <TabItem label="Advanced Features">
+    <CardGrid>
+      <Card title="Custom Domains" icon="external">
+        Use your own hostnames and subdomains
+      </Card>
+      <Card title="Header Manipulation" icon="setting">
+        Add/remove request and response headers dynamically
+      </Card>
+      <Card title="Circuit Breaker" icon="error">
+        Automatic failover on high error rates
+      </Card>
+      <Card title="Compression" icon="compressed">
+        Gzip compression for HTTP responses
+      </Card>
+      <Card title="WebSocket Converter" icon="connection">
+        WebSocket to TCP conversion for real-time apps
+      </Card>
+      <Card title="Request Inspection" icon="magnifier">
+        Enable/disable traffic inspection for debugging
+      </Card>
+    </CardGrid>
+  </TabItem>
+  
+  <TabItem label="Enterprise">
+    <CardGrid>
+      <Card title="Compliance Ready" icon="document">
+        <Badge text="SOX" variant="caution" /> <Badge text="PCI DSS" variant="caution" /> <Badge text="GDPR" variant="caution" /> compliance features
+      </Card>
+      <Card title="Monitoring" icon="chart">
+        Prometheus metrics and comprehensive health checks
+      </Card>
+      <Card title="Audit Logging" icon="list">
+        Complete request/response audit trails for compliance
+      </Card>
+      <Card title="File Integrity" icon="shield">
+        AIDE monitoring for security and compliance
+      </Card>
+      <Card title="Security Hardening" icon="lock">
+        Systemd security features and user isolation
+      </Card>
+      <Card title="High Availability" icon="approve-check">
+        Multi-instance deployment with load balancing
+      </Card>
+    </CardGrid>
+  </TabItem>
+</Tabs>
+
+## Quick Example
+
+```nix
+{
+  services.ngrok = {
+    enable = true;
+    authToken = "your-ngrok-token";
+    
+    tunnels = {
+      web = {
+        protocol = "https";
+        port = 80;
+        hostname = "myapp.example.com";
+        
+        oauth = {
+          provider = "google";
+          allow_domains = [ "mycompany.com" ];
+        };
+        
+        response_header_add = {
+          "X-Frame-Options" = "DENY";
+          "Strict-Transport-Security" = "max-age=31536000";
+        };
+        
+        circuit_breaker = 0.1;
+      };
+    };
+  };
+}
+```
+
+## Getting Started
+
+<CardGrid>
+  <Card title="🚀 Quick Start" icon="rocket">
+    Get up and running in 5 minutes with a basic HTTP tunnel.
+    
+    [Quick Start Guide →](/quick-start/)
+  </Card>
+  <Card title="📖 Examples" icon="open-book">
+    Explore comprehensive examples from basic to enterprise setups.
+    
+    [View Examples →](/examples/basic/)
+  </Card>
+  <Card title="🔧 Configuration" icon="setting">
+    Learn about all available configuration options and features.
+    
+    [Configuration Reference →](/config/basic/)
+  </Card>
+  <Card title="🏗️ Flake-Parts" icon="puzzle">
+    Use the modular flake-parts implementation for better composability.
+    
+    [Flake-Parts Guide →](/flake-parts/overview/)
+  </Card>
+</CardGrid>
+
+## Use Cases
+
+<Tabs>
+  <TabItem label="Development Teams">
+    <CardGrid>
+      <Card title="Local Development" icon="laptop">
+        Expose local development servers for external testing and collaboration
+        
+        <Badge text="Perfect for" variant="tip" /> React, Vue, Rails, Django apps
+      </Card>
+      <Card title="Stakeholder Demos" icon="presentation">
+        Share work-in-progress with stakeholders without deployment
+        
+        <Badge text="No deployment" variant="success" /> required
+      </Card>
+      <Card title="Webhook Testing" icon="connection">
+        Test webhooks and integrations with external services
+        
+        <Badge text="8 providers" variant="note" /> supported natively
+      </Card>
+      <Card title="Team Collaboration" icon="user-group">
+        Multiple developers can expose services simultaneously
+        
+        <Badge text="Unlimited tunnels" variant="tip" /> with paid plans
+      </Card>
+    </CardGrid>
+  </TabItem>
+  
+  <TabItem label="DevOps & Infrastructure">
+    <CardGrid>
+      <Card title="Remote Access" icon="tunnel">
+        Secure tunnels for accessing internal infrastructure
+        
+        <Badge text="SSH + HTTP" variant="note" /> tunnel support
+      </Card>
+      <Card title="Monitoring Integration" icon="chart">
+        Connect monitoring tools to internal services
+        
+        <Badge text="Prometheus ready" variant="success" />
+      </Card>
+      <Card title="CI/CD Pipelines" icon="workflow">
+        Integrate with CI/CD systems for testing and deployment
+        
+        <Badge text="GitHub Actions" variant="tip" /> compatible
+      </Card>
+      <Card title="Emergency Access" icon="emergency">
+        Quick access solutions for production debugging
+        
+        <Badge text="Circuit breakers" variant="caution" /> for safety
+      </Card>
+    </CardGrid>
+  </TabItem>
+  
+  <TabItem label="Enterprise">
+    <CardGrid>
+      <Card title="OIDC Admin Panels" icon="shield">
+        Enterprise identity integration for secure admin access
+        
+        <Badge text="Custom OIDC" variant="tip" /> providers supported
+      </Card>
+      <Card title="Compliance Auditing" icon="document">
+        Complete audit trails for regulatory compliance
+        
+        <Badge text="SOX" variant="caution" /> <Badge text="PCI DSS" variant="caution" /> ready
+      </Card>
+      <Card title="Multi-Tenant Services" icon="building">
+        Expose different services to different customer segments
+        
+        <Badge text="IP restrictions" variant="note" /> per tunnel
+      </Card>
+      <Card title="Security Hardening" icon="lock">
+        Enterprise-grade security with multiple authentication layers
+        
+        <Badge text="Mutual TLS" variant="success" /> support
+      </Card>
+    </CardGrid>
+  </TabItem>
+</Tabs>
+
+## Community & Support
+
+- **GitHub**: [Source code and issues](https://github.com/yourusername/nixgrok)
+- **Examples**: [Real-world configurations](/examples/basic/)
+- **Templates**: [Flake templates for quick setup](/flake-parts/templates/)
+- **Testing**: [VM testing on multiple architectures](/testing/vm/)
+
+---
+
+Ready to get started? Check out the [Quick Start Guide](/quick-start/) or explore our [Examples](/examples/basic/)!

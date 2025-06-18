@@ -70,5 +70,28 @@
       # VM system for testing
       packages.aarch64-linux.vm = self.nixosConfigurations.nixgrok-aarch64.config.system.build.vm;
 
+      # Flake templates
+      templates = {
+        basic = {
+          path = ./examples/basic;
+          description = "Basic ngrok service configuration";
+        };
+        
+        advanced = {
+          path = ./examples/advanced;
+          description = "Advanced ngrok service with all features";
+        };
+        
+        oauth = {
+          path = ./examples/oauth;
+          description = "OAuth-protected ngrok tunnels";
+        };
+        
+        enterprise = {
+          path = ./examples/enterprise;
+          description = "Enterprise ngrok setup with security features";
+        };
+      };
+
     };
 }

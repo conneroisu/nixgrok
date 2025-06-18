@@ -1,0 +1,1324 @@
+---
+title: VM Testing
+description: Cross-platform testing with QEMU virtual machines
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Badge, Code, Aside, FileTree, LinkCard } from '@astrojs/starlight/components';
+
+# VM Testing
+
+Test ngrok configurations across different architectures using QEMU virtual machines, especially useful for developing on macOS while targeting Linux production systems.
+
+<Aside type="tip" title="Cross-Platform Development">
+This guide shows how to test aarch64-linux configurations on aarch64-darwin (Apple Silicon) and x86_64-linux on any platform.
+</Aside>
+
+## Overview
+
+VM testing enables:
+
+<CardGrid>
+  <Card title="Cross-Platform Testing" icon="laptop">
+    Test Linux configurations on macOS development machines
+    
+    <Badge text="aarch64-linux" variant="tip" /> on <Badge text="aarch64-darwin" variant="note" />
+  </Card>
+  <Card title="Isolated Testing" icon="shield">
+    Test configurations in clean, reproducible environments
+    
+    <Badge text="No host pollution" variant="success" />
+  </Card>
+  <Card title="CI/CD Integration" icon="workflow">
+    Automated testing in continuous integration pipelines
+    
+    <Badge text="GitHub Actions" variant="tip" /> compatible
+  </Card>
+  <Card title="Production Simulation" icon="approve-check">
+    Test production-like scenarios before deployment
+    
+    <Badge text="Realistic testing" variant="note" />
+  </Card>
+</CardGrid>
+
+## VM Configuration
+
+### Basic VM Setup
+
+Our flake includes VM configurations for testing:
+
+<FileTree>
+- flake.nix
+- vm/
+  - basic-vm.nix       # Simple test VM
+  - ngrok-test-vm.nix  # ngrok-specific testing
+  - production-vm.nix  # Production simulation
+- scripts/
+  - run-vm.sh          # VM launcher script
+  - test-ngrok.sh      # Automated testing
+</FileTree>
+
+### VM Configuration Files
+
+<Tabs>
+  <TabItem label="Basic Test VM">
+    ```nix title="vm/basic-vm.nix"
+    { config, lib, pkgs, modulesPath, ... }:
+    {
+      imports = [
+        (modulesPath + "/virtualisation/qemu-vm.nix")
+      ];
+      
+      # VM-specific configuration
+      virtualisation = {
+        memorySize = 2048;        # 2GB RAM
+        cores = 2;                # 2 CPU cores
+        diskSize = 8192;          # 8GB disk
+        
+        # Enable KVM acceleration when available
+        qemu.options = [
+          "-enable-kvm"
+          "-cpu host"
+        ];
+        
+        # Network configuration
+        vlans = [ 1 ];
+        
+        # Graphics for debugging
+        graphics = false;         # Headless by default
+      };
+      
+      # Basic system configuration
+      system.stateVersion = "23.11";
+      
+      # Enable SSH for remote access
+      services.openssh = {
+        enable = true;
+        settings.PasswordAuthentication = true;
+        settings.PermitRootLogin = "yes";
+      };
+      
+      # Create test user
+      users.users.test = {
+        isNormalUser = true;
+        password = "test";
+        extraGroups = [ "wheel" ];
+      };
+      
+      # Enable sudo without password for testing
+      security.sudo.wheelNeedsPassword = false;
+      
+      # Networking
+      networking = {
+        hostName = "ngrok-test-vm";
+        firewall.enable = false;  # Disabled for testing
+      };
+      
+      # Development tools
+      environment.systemPackages = with pkgs; [
+        curl
+        jq
+        htop
+        tmux
+        vim
+      ];
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="ngrok Test VM">
+    ```nix title="vm/ngrok-test-vm.nix"
+    { config, lib, pkgs, modulesPath, ngrokModule, ... }:
+    {
+      imports = [
+        (modulesPath + "/virtualisation/qemu-vm.nix")
+        ngrokModule
+      ];
+      
+      # VM configuration optimized for ngrok testing
+      virtualisation = {
+        memorySize = 3072;        # 3GB for ngrok + services
+        cores = 4;
+        diskSize = 12288;         # 12GB disk
+        
+        # Network port forwarding for ngrok
+        forwardPorts = [
+          { from = "host"; host.port = 2222; guest.port = 22; }   # SSH
+          { from = "host"; host.port = 8080; guest.port = 8080; } # Web app
+          { from = "host"; host.port = 3000; guest.port = 3000; } # API
+          { from = "host"; host.port = 4040; guest.port = 4040; } # ngrok web UI
+        ];
+        
+        qemu.options = [
+          "-enable-kvm"
+          "-cpu host"
+          "-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:8080,hostfwd=tcp::3000-:3000,hostfwd=tcp::4040-:4040"
+        ];
+      };
+      
+      # Allow unfree packages for ngrok
+      nixpkgs.config.allowUnfree = true;
+      
+      # ngrok configuration for testing
+      services.ngrok = {
+        enable = true;
+        authToken = "test-token-replace-with-real";
+        region = "us";
+        metadata = "vm-test";
+        
+        tunnels = {
+          # Test web tunnel
+          web = {
+            protocol = "http";
+            port = 8080;
+            inspect = true;
+          };
+          
+          # Test API tunnel
+          api = {
+            protocol = "http";
+            port = 3000;
+            inspect = true;
+          };
+          
+          # Test TCP tunnel
+          ssh = {
+            protocol = "tcp";
+            port = 22;
+          };
+        };
+      };
+      
+      # Test web server
+      systemd.services.test-web-server = {
+        enable = true;
+        description = "Test Web Server";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+        
+        serviceConfig = {
+          Type = "simple";
+          User = "nobody";
+          ExecStart = "${pkgs.python3}/bin/python3 -m http.server 8080 --directory /var/www";
+          Restart = "always";
+        };
+      };
+      
+      # Test API server
+      systemd.services.test-api-server = {
+        enable = true;
+        description = "Test API Server";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+        
+        script = ''
+          ${pkgs.python3.withPackages (ps: [ ps.flask ])}/bin/python3 << 'EOF'
+          from flask import Flask, jsonify
+          app = Flask(__name__)
+          
+          @app.route('/')
+          def hello():
+              return jsonify({"message": "Hello from VM API!", "status": "ok"})
+          
+          @app.route('/health')
+          def health():
+              return jsonify({"status": "healthy", "vm": True})
+          
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=3000)
+          EOF
+        '';
+        
+        serviceConfig = {
+          Type = "simple";
+          User = "nobody";
+          Restart = "always";
+        };
+      };
+      
+      # Create test web content
+      systemd.tmpfiles.rules = [
+        "d /var/www 0755 nobody nobody -"
+      ];
+      
+      environment.etc."www/index.html".text = ''
+        <!DOCTYPE html>
+        <html>
+        <head><title>ngrok VM Test</title></head>
+        <body>
+            <h1>ngrok VM Test Server</h1>
+            <p>This is a test server running in a QEMU VM.</p>
+            <p>Hostname: ${config.networking.hostName}</p>
+            <p>Architecture: ${pkgs.system}</p>
+            <ul>
+                <li><a href="/">Web Server (Port 8080)</a></li>
+                <li><a href="http://localhost:3000">API Server (Port 3000)</a></li>
+                <li><a href="http://localhost:4040">ngrok Web UI (Port 4040)</a></li>
+            </ul>
+        </body>
+        </html>
+      '';
+      
+      # Additional development tools
+      environment.systemPackages = with pkgs; [
+        curl
+        wget
+        jq
+        htop
+        iotop
+        netstat-nat
+        tcpdump
+        strace
+        lsof
+        tmux
+        vim
+        git
+      ];
+      
+      # SSH configuration for easy access
+      services.openssh = {
+        enable = true;
+        settings = {
+          PasswordAuthentication = true;
+          PermitRootLogin = "yes";
+        };
+      };
+      
+      users.users.test = {
+        isNormalUser = true;
+        password = "test";
+        extraGroups = [ "wheel" ];
+        openssh.authorizedKeys.keys = [
+          # Add your SSH public key here for easier access
+          # "ssh-rsa AAAAB3NzaC1yc2E... your-key"
+        ];
+      };
+      
+      security.sudo.wheelNeedsPassword = false;
+      
+      networking = {
+        hostName = "ngrok-test";
+        firewall = {
+          enable = true;
+          allowedTCPPorts = [ 22 80 8080 3000 4040 ];
+        };
+      };
+      
+      system.stateVersion = "23.11";
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Production Simulation">
+    ```nix title="vm/production-vm.nix"
+    { config, lib, pkgs, modulesPath, ngrokModule, ... }:
+    {
+      imports = [
+        (modulesPath + "/virtualisation/qemu-vm.nix")
+        ngrokModule
+      ];
+      
+      # Production-like VM configuration
+      virtualisation = {
+        memorySize = 4096;        # 4GB RAM
+        cores = 4;
+        diskSize = 20480;         # 20GB disk
+        
+        # Production-like network setup
+        forwardPorts = [
+          { from = "host"; host.port = 2222; guest.port = 22; }
+          { from = "host"; host.port = 8443; guest.port = 8443; }
+          { from = "host"; host.port = 9090; guest.port = 9090; }  # Prometheus
+          { from = "host"; host.port = 3001; guest.port = 3001; }  # Grafana
+        ];
+        
+        qemu.options = [
+          "-enable-kvm"
+          "-cpu host"
+        ];
+      };
+      
+      nixpkgs.config.allowUnfree = true;
+      
+      # Production-like ngrok configuration
+      services.ngrok = {
+        enable = true;
+        authToken = "production-test-token";
+        region = "us";
+        metadata = "production-simulation";
+        
+        tunnels = {
+          # Secure web application
+          web = {
+            protocol = "https";
+            port = 8443;
+            
+            # Basic auth for demo
+            auth = "admin:secure123";
+            
+            # Security headers
+            response_header_add = {
+              "Strict-Transport-Security" = "max-age=31536000";
+              "X-Frame-Options" = "DENY";
+              "X-Content-Type-Options" = "nosniff";
+            };
+            
+            # Performance settings
+            compression = true;
+            circuit_breaker = 0.1;
+            inspect = false;
+          };
+        };
+      };
+      
+      # Nginx for HTTPS termination
+      services.nginx = {
+        enable = true;
+        
+        virtualHosts."localhost" = {
+          listen = [
+            { addr = "0.0.0.0"; port = 8443; ssl = true; }
+          ];
+          
+          sslCertificate = "/etc/ssl/certs/nginx-selfsigned.crt";
+          sslCertificateKey = "/etc/ssl/private/nginx-selfsigned.key";
+          
+          locations."/" = {
+            proxyPass = "http://127.0.0.1:8080";
+            extraConfig = ''
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+            '';
+          };
+        };
+      };
+      
+      # Generate self-signed certificate for testing
+      systemd.services.generate-ssl-cert = {
+        description = "Generate self-signed SSL certificate";
+        wantedBy = [ "nginx.service" ];
+        before = [ "nginx.service" ];
+        
+        script = ''
+          mkdir -p /etc/ssl/certs /etc/ssl/private
+          
+          if [ ! -f /etc/ssl/certs/nginx-selfsigned.crt ]; then
+            ${pkgs.openssl}/bin/openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout /etc/ssl/private/nginx-selfsigned.key \
+              -out /etc/ssl/certs/nginx-selfsigned.crt \
+              -subj "/C=US/ST=Test/L=Test/O=Test/CN=localhost"
+          fi
+        '';
+        
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+      };
+      
+      # Monitoring stack
+      services.prometheus = {
+        enable = true;
+        port = 9090;
+        
+        scrapeConfigs = [
+          {
+            job_name = "nginx";
+            static_configs = [{
+              targets = [ "localhost:8443" ];
+            }];
+            metrics_path = "/metrics";
+          }
+        ];
+      };
+      
+      services.grafana = {
+        enable = true;
+        settings.server = {
+          http_addr = "0.0.0.0";
+          http_port = 3001;
+        };
+      };
+      
+      # PostgreSQL for realistic database load
+      services.postgresql = {
+        enable = true;
+        ensureDatabases = [ "testapp" ];
+        ensureUsers = [{
+          name = "testapp";
+          ensurePermissions = {
+            "DATABASE testapp" = "ALL PRIVILEGES";
+          };
+        }];
+      };
+      
+      # Production-like application
+      systemd.services.production-app = {
+        enable = true;
+        description = "Production Test Application";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" "postgresql.service" ];
+        
+        script = ''
+          ${pkgs.python3.withPackages (ps: with ps; [ flask gunicorn psycopg2 ])}/bin/gunicorn \
+            --bind 0.0.0.0:8080 \
+            --workers 4 \
+            --worker-class sync \
+            --access-logfile - \
+            --error-logfile - \
+            app:app
+        '';
+        
+        preStart = ''
+          cat > app.py << 'EOF'
+          from flask import Flask, jsonify, request
+          import psycopg2
+          import os
+          
+          app = Flask(__name__)
+          
+          @app.route('/')
+          def home():
+              return jsonify({
+                  "message": "Production Test App",
+                  "environment": "vm-simulation",
+                  "headers": dict(request.headers)
+              })
+          
+          @app.route('/health')
+          def health():
+              try:
+                  conn = psycopg2.connect(
+                      host="localhost",
+                      database="testapp",
+                      user="testapp"
+                  )
+                  conn.close()
+                  db_status = "healthy"
+              except Exception as e:
+                  db_status = f"error: {str(e)}"
+              
+              return jsonify({
+                  "status": "healthy",
+                  "database": db_status,
+                  "vm": True
+              })
+          
+          @app.route('/load-test')
+          def load_test():
+              # Simulate some database work
+              try:
+                  conn = psycopg2.connect(
+                      host="localhost",
+                      database="testapp",
+                      user="testapp"
+                  )
+                  cur = conn.cursor()
+                  cur.execute("SELECT version();")
+                  version = cur.fetchone()[0]
+                  conn.close()
+                  
+                  return jsonify({
+                      "postgres_version": version,
+                      "load_test": "completed"
+                  })
+              except Exception as e:
+                  return jsonify({"error": str(e)}), 500
+          
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=8080)
+          EOF
+        '';
+        
+        serviceConfig = {
+          Type = "simple";
+          User = "nobody";
+          WorkingDirectory = "/tmp";
+          Restart = "always";
+          RestartSec = "5";
+        };
+      };
+      
+      networking = {
+        hostName = "ngrok-production-vm";
+        firewall = {
+          enable = true;
+          allowedTCPPorts = [ 22 80 443 8080 8443 9090 3001 ];
+        };
+      };
+      
+      # SSH access
+      services.openssh = {
+        enable = true;
+        settings = {
+          PasswordAuthentication = true;
+          PermitRootLogin = "yes";
+        };
+      };
+      
+      users.users.admin = {
+        isNormalUser = true;
+        password = "admin";
+        extraGroups = [ "wheel" ];
+      };
+      
+      security.sudo.wheelNeedsPassword = false;
+      
+      system.stateVersion = "23.11";
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Running VMs
+
+### VM Management Scripts
+
+<Tabs>
+  <TabItem label="VM Launcher">
+    ```bash title="scripts/run-vm.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # VM configuration
+    VM_NAME="${1:-ngrok-test}"
+    VM_CONFIG="${2:-vm/ngrok-test-vm.nix}"
+    NGROK_TOKEN="${NGROK_AUTH_TOKEN:-}"
+    
+    # Colors for output
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+    
+    log() {
+        echo -e "${BLUE}[VM]${NC} $1"
+    }
+    
+    error() {
+        echo -e "${RED}[ERROR]${NC} $1" >&2
+        exit 1
+    }
+    
+    warn() {
+        echo -e "${YELLOW}[WARN]${NC} $1"
+    }
+    
+    success() {
+        echo -e "${GREEN}[SUCCESS]${NC} $1"
+    }
+    
+    # Check prerequisites
+    check_prerequisites() {
+        log "Checking prerequisites..."
+        
+        if ! command -v nix &> /dev/null; then
+            error "Nix is not installed or not in PATH"
+        fi
+        
+        if [ -z "$NGROK_TOKEN" ]; then
+            warn "NGROK_AUTH_TOKEN not set. Using placeholder token."
+            warn "Set NGROK_AUTH_TOKEN environment variable for real testing."
+            NGROK_TOKEN="test-token-replace-with-real"
+        fi
+        
+        if [ ! -f "$VM_CONFIG" ]; then
+            error "VM configuration file not found: $VM_CONFIG"
+        fi
+        
+        success "Prerequisites check passed"
+    }
+    
+    # Build VM
+    build_vm() {
+        log "Building VM configuration..."
+        
+        # Create temporary configuration with auth token
+        local temp_config="/tmp/${VM_NAME}-config.nix"
+        
+        cat > "$temp_config" << EOF
+    { config, lib, pkgs, ... }:
+    {
+      imports = [ ./$VM_CONFIG ];
+      
+      # Override ngrok auth token
+      services.ngrok.authToken = lib.mkForce "$NGROK_TOKEN";
+    }
+    EOF
+        
+        # Build the VM
+        nix build ".#nixosConfigurations.${VM_NAME}.config.system.build.vm" \
+            --extra-experimental-features "nix-command flakes" \
+            --override-input nixpkgs-vm "$temp_config" || {
+            error "Failed to build VM"
+        }
+        
+        rm -f "$temp_config"
+        success "VM built successfully"
+    }
+    
+    # Start VM
+    start_vm() {
+        log "Starting VM: $VM_NAME"
+        
+        # Find the VM script
+        local vm_script
+        vm_script=$(find result/bin -name "run-*-vm" | head -1)
+        
+        if [ -z "$vm_script" ]; then
+            error "VM script not found in result/bin/"
+        fi
+        
+        log "VM script: $vm_script"
+        log "SSH access: ssh -p 2222 test@localhost (password: test)"
+        log "Web UI: http://localhost:8080"
+        log "API: http://localhost:3000"
+        log "ngrok Web UI: http://localhost:4040"
+        log "Press Ctrl+C to stop the VM"
+        
+        # Start the VM
+        "$vm_script"
+    }
+    
+    # Main execution
+    main() {
+        log "Starting ngrok VM: $VM_NAME"
+        log "Configuration: $VM_CONFIG"
+        
+        check_prerequisites
+        build_vm
+        start_vm
+    }
+    
+    # Handle script arguments
+    case "${1:-}" in
+        -h|--help)
+            echo "Usage: $0 [VM_NAME] [CONFIG_FILE]"
+            echo ""
+            echo "Environment variables:"
+            echo "  NGROK_AUTH_TOKEN  - Your ngrok auth token (required)"
+            echo ""
+            echo "Examples:"
+            echo "  $0                                    # Use defaults"
+            echo "  $0 basic vm/basic-vm.nix              # Basic VM"
+            echo "  $0 production vm/production-vm.nix    # Production simulation"
+            exit 0
+            ;;
+        *)
+            main
+            ;;
+    esac
+    ```
+  </TabItem>
+  
+  <TabItem label="Test Automation">
+    ```bash title="scripts/test-ngrok.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Test configuration
+    VM_NAME="ngrok-test"
+    SSH_PORT="2222"
+    SSH_USER="test"
+    SSH_PASS="test"
+    TIMEOUT="300"  # 5 minutes
+    
+    # Colors
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m'
+    
+    log() { echo -e "${BLUE}[TEST]${NC} $1"; }
+    error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+    warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+    success() { echo -e "${GREEN}[PASS]${NC} $1"; }
+    
+    # Wait for VM to be ready
+    wait_for_vm() {
+        log "Waiting for VM to be ready..."
+        
+        local count=0
+        while ! sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+                -p "$SSH_PORT" "$SSH_USER@localhost" \
+                "echo 'VM is ready'" &>/dev/null; do
+            
+            if [ $count -gt $TIMEOUT ]; then
+                error "VM failed to start within $TIMEOUT seconds"
+                return 1
+            fi
+            
+            log "Waiting for VM... ($count/$TIMEOUT)"
+            sleep 1
+            ((count++))
+        done
+        
+        success "VM is ready"
+    }
+    
+    # Execute command in VM
+    vm_exec() {
+        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+            -p "$SSH_PORT" "$SSH_USER@localhost" "$1"
+    }
+    
+    # Test ngrok service status
+    test_ngrok_service() {
+        log "Testing ngrok service status..."
+        
+        if vm_exec "sudo systemctl is-active ngrok-web"; then
+            success "ngrok-web service is active"
+        else
+            error "ngrok-web service is not active"
+            return 1
+        fi
+        
+        if vm_exec "sudo systemctl is-active ngrok-api"; then
+            success "ngrok-api service is active"
+        else
+            error "ngrok-api service is not active"
+            return 1
+        fi
+    }
+    
+    # Test local services
+    test_local_services() {
+        log "Testing local services..."
+        
+        # Test web server
+        if vm_exec "curl -f http://localhost:8080"; then
+            success "Web server is responding"
+        else
+            error "Web server is not responding"
+            return 1
+        fi
+        
+        # Test API server
+        if vm_exec "curl -f http://localhost:3000/health"; then
+            success "API server is responding"
+        else
+            error "API server is not responding"
+            return 1
+        fi
+    }
+    
+    # Test ngrok tunnels
+    test_ngrok_tunnels() {
+        log "Testing ngrok tunnels..."
+        
+        # Get tunnel URLs from ngrok logs
+        local web_tunnel
+        web_tunnel=$(vm_exec "sudo journalctl -u ngrok-web --no-pager | grep 'started tunnel' | tail -1 | grep -o 'https://[^ ]*'" || echo "")
+        
+        if [ -n "$web_tunnel" ]; then
+            success "Web tunnel: $web_tunnel"
+            
+            # Test tunnel connectivity
+            if curl -f "$web_tunnel" &>/dev/null; then
+                success "Web tunnel is accessible from outside"
+            else
+                warn "Web tunnel is not accessible (may require valid auth token)"
+            fi
+        else
+            error "Web tunnel URL not found"
+        fi
+        
+        local api_tunnel
+        api_tunnel=$(vm_exec "sudo journalctl -u ngrok-api --no-pager | grep 'started tunnel' | tail -1 | grep -o 'https://[^ ]*'" || echo "")
+        
+        if [ -n "$api_tunnel" ]; then
+            success "API tunnel: $api_tunnel"
+            
+            if curl -f "$api_tunnel/health" &>/dev/null; then
+                success "API tunnel is accessible from outside"
+            else
+                warn "API tunnel is not accessible (may require valid auth token)"
+            fi
+        else
+            error "API tunnel URL not found"
+        fi
+    }
+    
+    # Test ngrok web interface
+    test_ngrok_web_ui() {
+        log "Testing ngrok web interface..."
+        
+        if curl -f "http://localhost:4040/api/tunnels" &>/dev/null; then
+            success "ngrok web interface is accessible"
+            
+            # Get tunnel information
+            local tunnel_info
+            tunnel_info=$(curl -s "http://localhost:4040/api/tunnels" | jq -r '.tunnels[] | "\(.name): \(.public_url)"')
+            
+            if [ -n "$tunnel_info" ]; then
+                log "Active tunnels:"
+                echo "$tunnel_info" | while read -r line; do
+                    log "  $line"
+                done
+            fi
+        else
+            error "ngrok web interface is not accessible"
+            return 1
+        fi
+    }
+    
+    # Generate test report
+    generate_report() {
+        log "Generating test report..."
+        
+        local report_file="test-report-$(date +%Y%m%d-%H%M%S).txt"
+        
+        cat > "$report_file" << EOF
+    ngrok VM Test Report
+    Generated: $(date)
+    VM: $VM_NAME
+    
+    System Information:
+    $(vm_exec "uname -a")
+    $(vm_exec "cat /etc/os-release | head -3")
+    
+    ngrok Services:
+    $(vm_exec "sudo systemctl status ngrok-* --no-pager -l")
+    
+    Local Services:
+    $(vm_exec "curl -s http://localhost:8080 | head -10")
+    $(vm_exec "curl -s http://localhost:3000/health")
+    
+    ngrok Tunnels:
+    $(curl -s "http://localhost:4040/api/tunnels" | jq '.' 2>/dev/null || echo "ngrok API not accessible")
+    
+    Recent Logs:
+    $(vm_exec "sudo journalctl -u ngrok-* --since '5 minutes ago' --no-pager")
+    EOF
+        
+        success "Test report saved to: $report_file"
+    }
+    
+    # Main test execution
+    main() {
+        log "Starting ngrok VM tests..."
+        
+        # Check if VM is accessible
+        if ! wait_for_vm; then
+            error "VM is not accessible"
+            exit 1
+        fi
+        
+        # Run tests
+        local tests_passed=0
+        local tests_total=0
+        
+        for test_func in test_ngrok_service test_local_services test_ngrok_tunnels test_ngrok_web_ui; do
+            ((tests_total++))
+            
+            log "Running: $test_func"
+            if $test_func; then
+                ((tests_passed++))
+            else
+                warn "Test failed: $test_func"
+            fi
+            
+            echo
+        done
+        
+        # Generate report
+        generate_report
+        
+        # Summary
+        log "Test Summary: $tests_passed/$tests_total tests passed"
+        
+        if [ $tests_passed -eq $tests_total ]; then
+            success "All tests passed!"
+            exit 0
+        else
+            error "Some tests failed"
+            exit 1
+        fi
+    }
+    
+    # Check prerequisites
+    if ! command -v sshpass &> /dev/null; then
+        error "sshpass is required but not installed"
+        exit 1
+    fi
+    
+    if ! command -v jq &> /dev/null; then
+        warn "jq is not installed - JSON output will be raw"
+    fi
+    
+    main "$@"
+    ```
+  </TabItem>
+</Tabs>
+
+## Testing Workflow
+
+### Interactive Testing
+
+<Steps>
+1. **Start the VM**
+   
+   ```bash
+   # Export your ngrok auth token
+   export NGROK_AUTH_TOKEN="your-actual-token"
+   
+   # Start the test VM
+   ./scripts/run-vm.sh ngrok-test vm/ngrok-test-vm.nix
+   ```
+
+2. **Access the VM**
+   
+   ```bash
+   # SSH into the VM
+   ssh -p 2222 test@localhost
+   # Password: test
+   
+   # Or use the test automation
+   ./scripts/test-ngrok.sh
+   ```
+
+3. **Verify Services**
+   
+   ```bash
+   # Inside the VM
+   sudo systemctl status ngrok-*
+   curl http://localhost:8080
+   curl http://localhost:3000/health
+   ```
+
+4. **Check Tunnel URLs**
+   
+   ```bash
+   # View ngrok web interface (from host)
+   open http://localhost:4040
+   
+   # Get tunnel URLs
+   curl http://localhost:4040/api/tunnels | jq '.tunnels[].public_url'
+   ```
+</Steps>
+
+### Automated Testing
+
+<Tabs>
+  <TabItem label="GitHub Actions">
+    ```yaml title=".github/workflows/vm-test.yml"
+    name: VM Testing
+    
+    on:
+      push:
+        branches: [ main, dev ]
+      pull_request:
+        branches: [ main ]
+    
+    jobs:
+      vm-test:
+        runs-on: ubuntu-latest
+        
+        steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+        
+        - name: Install Nix
+          uses: cachix/install-nix-action@v23
+          with:
+            extra_nix_config: |
+              experimental-features = nix-command flakes
+              system-features = kvm
+        
+        - name: Setup QEMU
+          run: |
+            sudo apt-get update
+            sudo apt-get install -y qemu-system-x86-64 qemu-kvm
+            sudo usermod -a -G kvm $USER
+        
+        - name: Build VM
+          run: |
+            nix build .#nixosConfigurations.ngrok-test.config.system.build.vm
+        
+        - name: Start VM in background
+          run: |
+            # Start VM with test token
+            export NGROK_AUTH_TOKEN="test-token"
+            timeout 600 result/bin/run-ngrok-test-vm &
+            VM_PID=$!
+            
+            # Wait for VM to be ready
+            for i in {1..60}; do
+              if ssh -o StrictHostKeyChecking=no -p 2222 test@localhost echo "ready" 2>/dev/null; then
+                echo "VM is ready"
+                break
+              fi
+              sleep 5
+            done
+        
+        - name: Run tests
+          run: |
+            # Install test dependencies
+            sudo apt-get install -y sshpass jq
+            
+            # Run automated tests
+            ./scripts/test-ngrok.sh
+        
+        - name: Upload test results
+          if: always()
+          uses: actions/upload-artifact@v3
+          with:
+            name: test-results
+            path: test-report-*.txt
+    ```
+  </TabItem>
+  
+  <TabItem label="Local CI Script">
+    ```bash title="scripts/ci-test.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # CI test script for local development
+    
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+    
+    # Configuration
+    VM_TIMEOUT="300"
+    TEST_TIMEOUT="600"
+    
+    log() { echo "[CI] $1"; }
+    error() { echo "[ERROR] $1" >&2; exit 1; }
+    
+    # Cleanup function
+    cleanup() {
+        log "Cleaning up..."
+        
+        # Kill VM if running
+        if [ -n "${VM_PID:-}" ]; then
+            kill "$VM_PID" 2>/dev/null || true
+        fi
+        
+        # Clean up temporary files
+        rm -f "/tmp/vm-test-*"
+    }
+    
+    trap cleanup EXIT
+    
+    main() {
+        log "Starting CI test pipeline..."
+        
+        cd "$PROJECT_DIR"
+        
+        # Check prerequisites
+        if ! command -v nix &> /dev/null; then
+            error "Nix is required"
+        fi
+        
+        if [ -z "${NGROK_AUTH_TOKEN:-}" ]; then
+            log "No NGROK_AUTH_TOKEN set, using test token"
+            export NGROK_AUTH_TOKEN="test-token"
+        fi
+        
+        # Build VM
+        log "Building VM..."
+        nix build .#nixosConfigurations.ngrok-test.config.system.build.vm \
+            --extra-experimental-features "nix-command flakes" || {
+            error "Failed to build VM"
+        }
+        
+        # Start VM
+        log "Starting VM..."
+        timeout "$VM_TIMEOUT" result/bin/run-ngrok-test-vm &
+        VM_PID=$!
+        
+        # Wait for VM
+        log "Waiting for VM to be ready..."
+        for i in $(seq 1 60); do
+            if sshpass -p "test" ssh -o StrictHostKeyChecking=no \
+                    -p 2222 test@localhost "echo ready" &>/dev/null; then
+                log "VM is ready after ${i} attempts"
+                break
+            fi
+            
+            if [ $i -eq 60 ]; then
+                error "VM failed to start within timeout"
+            fi
+            
+            sleep 5
+        done
+        
+        # Run tests
+        log "Running tests..."
+        timeout "$TEST_TIMEOUT" "$SCRIPT_DIR/test-ngrok.sh" || {
+            error "Tests failed or timed out"
+        }
+        
+        log "All tests passed!"
+    }
+    
+    main "$@"
+    ```
+  </TabItem>
+</Tabs>
+
+## Platform-Specific Testing
+
+### Apple Silicon (aarch64-darwin)
+
+<Aside type="note" title="UTM Integration">
+For macOS users, UTM provides a more native virtualization experience than QEMU directly.
+</Aside>
+
+```nix title="vm/utm-vm.nix"
+{
+  # UTM-optimized VM configuration
+  virtualisation = {
+    # Optimized for Apple Silicon
+    memorySize = 4096;
+    cores = 4;
+    
+    # Use Apple Virtualization Framework when available
+    qemu = {
+      package = pkgs.qemu.override {
+        hostCpuTargets = [ "aarch64-softmmu" ];
+        enableDocs = false;
+      };
+      
+      options = [
+        "-machine virt,accel=hvf"  # Use Hypervisor.framework
+        "-cpu cortex-a72"
+        "-device virtio-net-pci,netdev=net0"
+        "-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:8080"
+      ];
+    };
+  };
+}
+```
+
+### Cross-Architecture Testing
+
+```bash title="scripts/cross-platform-test.sh"
+#!/usr/bin/env bash
+
+# Test multiple architectures
+ARCHITECTURES=("x86_64-linux" "aarch64-linux")
+CONFIGS=("basic" "ngrok-test" "production")
+
+for arch in "${ARCHITECTURES[@]}"; do
+    for config in "${CONFIGS[@]}"; do
+        echo "Testing $config on $arch..."
+        
+        # Build for specific architecture
+        nix build ".#nixosConfigurations.${config}.config.system.build.vm" \
+            --system "$arch" || {
+            echo "Failed to build $config for $arch"
+            continue
+        }
+        
+        # Run emulated if cross-compiling
+        if [ "$arch" != "$(nix eval --raw --impure --expr 'builtins.currentSystem')" ]; then
+            echo "Running emulated test for $arch"
+            # Use QEMU user mode emulation
+            qemu-$arch result/bin/run-*-vm
+        else
+            echo "Running native test"
+            ./scripts/test-ngrok.sh
+        fi
+        
+        echo "✓ $config on $arch completed"
+    done
+done
+```
+
+## Troubleshooting VM Tests
+
+### Common Issues
+
+<CardGrid>
+  <Card title="VM Won't Start" icon="error">
+    **Symptoms**: VM fails to boot or hangs
+    
+    **Solutions**:
+    - Check KVM support: `ls /dev/kvm`
+    - Reduce memory: `memorySize = 1024;`
+    - Disable graphics: `graphics = false;`
+    - Check disk space for VM image
+  </Card>
+  
+  <Card title="Network Issues" icon="warning">
+    **Symptoms**: Can't access VM services
+    
+    **Solutions**:
+    - Check port forwarding configuration
+    - Verify firewall settings in VM
+    - Test with `netstat -tlnp` in VM
+    - Check host port conflicts
+  </Card>
+  
+  <Card title="ngrok Authentication" icon="key">
+    **Symptoms**: Tunnels fail to start
+    
+    **Solutions**:
+    - Verify `NGROK_AUTH_TOKEN` is set
+    - Check token validity in ngrok dashboard
+    - Review ngrok service logs
+    - Test with minimal configuration
+  </Card>
+  
+  <Card title="Performance Issues" icon="rocket">
+    **Symptoms**: Slow VM or timeouts
+    
+    **Solutions**:
+    - Increase VM memory and cores
+    - Enable KVM acceleration
+    - Disable unnecessary services
+    - Use SSD for VM storage
+  </Card>
+</CardGrid>
+
+### Debug Commands
+
+```bash
+# VM diagnostics
+ssh -p 2222 test@localhost 'sudo systemctl status ngrok-*'
+ssh -p 2222 test@localhost 'sudo journalctl -u ngrok-* -f'
+ssh -p 2222 test@localhost 'curl -s http://localhost:4040/api/tunnels | jq'
+
+# Host diagnostics
+netstat -tlnp | grep -E '(2222|8080|3000|4040)'
+lsof -i :2222
+ps aux | grep qemu
+
+# Performance monitoring
+ssh -p 2222 test@localhost 'top -bn1 | head -20'
+ssh -p 2222 test@localhost 'free -h'
+ssh -p 2222 test@localhost 'df -h'
+```
+
+## Next Steps
+
+<CardGrid>
+  <LinkCard
+    title="Cross-Platform Testing"
+    description="Test across different architectures and platforms"
+    href="/testing/cross-platform/"
+  />
+  <LinkCard
+    title="CI Integration"
+    description="Integrate VM testing into CI/CD pipelines"
+    href="/testing/ci/"
+  />
+  <LinkCard
+    title="Production Setup"
+    description="Deploy tested configurations to production"
+    href="/deployment/production/"
+  />
+  <LinkCard
+    title="Troubleshooting"
+    description="Debug and resolve common issues"
+    href="/deployment/troubleshooting/"
+  />
+</CardGrid>
+
+---
+
+VM testing provides a reliable way to validate ngrok configurations across different platforms and architectures before production deployment.

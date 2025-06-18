@@ -1,0 +1,404 @@
+---
+title: Installation
+description: Installation methods for the ngrok NixOS service module
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Installation
+
+This guide covers different methods to install and integrate the ngrok NixOS service module into your system.
+
+## Prerequisites
+
+<CardGrid>
+  <Card title="NixOS System" icon="approve-check">
+    NixOS 23.11 or later with flakes enabled (recommended)
+  </Card>
+  <Card title="ngrok Account" icon="user">
+    Free or paid account at [ngrok.com](https://ngrok.com)
+  </Card>
+  <Card title="Auth Token" icon="key">
+    API token from your ngrok dashboard
+  </Card>
+  <Card title="Network Access" icon="network">
+    Outbound HTTPS access to ngrok.com (port 443)
+  </Card>
+</CardGrid>
+
+## Installation Methods
+
+### Method 1: Flakes (Recommended)
+
+Using Nix flakes provides the best experience with automatic updates and dependency management.
+
+<Tabs>
+  <TabItem label="System Flake">
+    Add to your system flake configuration:
+    
+    ```nix title="flake.nix"
+    {
+      inputs = {
+        nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+        ngrok-nixos.url = "github:yourusername/nixgrok";
+        # Optional: pin to specific version
+        # ngrok-nixos.url = "github:yourusername/nixgrok/v1.0.0";
+      };
+
+      outputs = { nixpkgs, ngrok-nixos, ... }: {
+        nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ngrok-nixos.nixosModules.default
+            ./configuration.nix
+          ];
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Configuration">
+    Then in your `configuration.nix`:
+    
+    ```nix title="configuration.nix"
+    { config, pkgs, ... }:
+    {
+      # Enable unfree packages (ngrok is proprietary)
+      nixpkgs.config.allowUnfree = true;
+      
+      # Configure ngrok service
+      services.ngrok = {
+        enable = true;
+        authToken = "your-auth-token";
+        tunnels.web = {
+          protocol = "http";
+          port = 8080;
+        };
+      };
+    }
+    ```
+  </TabItem>
+  
+  <TabItem label="Rebuild">
+    Apply the configuration:
+    
+    ```bash
+    # Rebuild system
+    sudo nixos-rebuild switch --flake .#myhost
+    
+    # Check service status
+    systemctl status ngrok-web
+    ```
+  </TabItem>
+</Tabs>
+
+### Method 2: Direct Import
+
+For systems without flakes, you can import the module directly:
+
+```nix title="configuration.nix"
+{ config, pkgs, ... }:
+
+{
+  imports = [
+    # Import the ngrok module
+    (builtins.fetchTarball {
+      url = "https://github.com/yourusername/nixgrok/archive/main.tar.gz";
+      # Update sha256 when the repository changes
+      sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    } + "/modules/ngrok.nix")
+  ];
+  
+  nixpkgs.config.allowUnfree = true;
+  
+  services.ngrok = {
+    enable = true;
+    authToken = "your-auth-token";
+    tunnels.web = {
+      protocol = "http";
+      port = 8080;
+    };
+  };
+}
+```
+
+### Method 3: Flake Templates
+
+Use our pre-built templates for quick project setup:
+
+<Tabs>
+  <TabItem label="Basic Template">
+    ```bash
+    # Create new project
+    mkdir my-ngrok-project
+    cd my-ngrok-project
+    
+    # Initialize from template
+    nix flake init -t github:yourusername/nixgrok#basic
+    
+    # Edit configuration
+    vim configuration.nix
+    
+    # Build and test
+    nix build .#nixosConfigurations.ngrok-basic.config.system.build.toplevel
+    ```
+  </TabItem>
+  
+  <TabItem label="Advanced Template">
+    ```bash
+    # Advanced template with OAuth and security
+    nix flake init -t github:yourusername/nixgrok#advanced
+    
+    # Review the configuration
+    cat configuration.nix
+    
+    # Customize for your needs
+    vim configuration.nix
+    ```
+  </TabItem>
+  
+  <TabItem label="Enterprise Template">
+    ```bash
+    # Enterprise template with OIDC and compliance
+    nix flake init -t github:yourusername/nixgrok#enterprise
+    
+    # Configure enterprise settings
+    vim configuration.nix
+    ```
+  </TabItem>
+</Tabs>
+
+### Method 4: Flake-Parts
+
+For modular configurations using flake-parts:
+
+```nix title="flake.nix"
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    ngrok-nixos.url = "github:yourusername/nixgrok";
+  };
+
+  outputs = inputs @ { flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [
+        inputs.ngrok-nixos.flakeModules.default
+      ];
+      
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      
+      flake.nixosConfigurations.myhost = inputs.nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          inputs.ngrok-nixos.nixosModules.default
+          ./configuration.nix
+        ];
+      };
+    };
+}
+```
+
+## Enable Flakes (If Not Already Enabled)
+
+If you're using NixOS without flakes enabled:
+
+```nix title="configuration.nix"
+{
+  # Enable flakes and new nix command
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+}
+```
+
+Then rebuild and restart:
+```bash
+sudo nixos-rebuild switch
+```
+
+## Getting Your Auth Token
+
+1. **Sign up** at [ngrok.com](https://ngrok.com) (free account available)
+2. **Go to dashboard** at [dashboard.ngrok.com](https://dashboard.ngrok.com)
+3. **Navigate to Auth** section in sidebar
+4. **Copy your auth token** from "Your Authtoken" section
+
+<Card title="🔐 Security Note" icon="warning">
+  Keep your auth token secure! Never commit it to version control. Consider using NixOS secrets management or environment variables.
+</Card>
+
+## Verification
+
+After installation, verify everything is working:
+
+```bash
+# Check if ngrok package is available
+nix-shell -p ngrok --run "ngrok version"
+
+# Check service status (after configuration)
+systemctl status ngrok-web
+
+# View service logs
+journalctl -u ngrok-web -f
+
+# Test configuration syntax
+sudo -u ngrok ngrok --config=/etc/ngrok/ngrok.yml config check
+```
+
+## Troubleshooting Installation
+
+### Common Issues
+
+<CardGrid>
+  <Card title="Unfree Package Error" icon="error">
+    **Error**: `ngrok` is marked as unfree
+    
+    **Solution**: Add `nixpkgs.config.allowUnfree = true;` to your configuration
+  </Card>
+  
+  <Card title="Flake Input Not Found" icon="warning">
+    **Error**: Cannot find flake input
+    
+    **Solution**: Ensure the GitHub URL is correct and repository is public
+  </Card>
+  
+  <Card title="Hash Mismatch" icon="shield">
+    **Error**: Hash mismatch in fetchTarball
+    
+    **Solution**: Update the sha256 hash or remove it to auto-calculate
+  </Card>
+  
+  <Card title="Network Issues" icon="network">
+    **Error**: Cannot fetch from GitHub
+    
+    **Solution**: Check internet connectivity and GitHub access
+  </Card>
+</CardGrid>
+
+### Debug Steps
+
+1. **Check flake inputs**:
+   ```bash
+   nix flake show github:yourusername/nixgrok
+   ```
+
+2. **Test module import**:
+   ```bash
+   nix eval .#nixosConfigurations.myhost.config.services.ngrok.enable
+   ```
+
+3. **Verify package availability**:
+   ```bash
+   nix-shell -p ngrok --run "which ngrok"
+   ```
+
+4. **Check configuration**:
+   ```bash
+   nixos-rebuild dry-build --flake .#myhost
+   ```
+
+## Update Instructions
+
+### Flake-based Updates
+
+```bash
+# Update flake inputs
+nix flake update
+
+# Update specific input
+nix flake lock --update-input ngrok-nixos
+
+# Rebuild with updates
+sudo nixos-rebuild switch --flake .#myhost
+```
+
+### Direct Import Updates
+
+For direct imports, update the URL and hash:
+
+```nix
+(builtins.fetchTarball {
+  url = "https://github.com/yourusername/nixgrok/archive/v1.1.0.tar.gz";
+  sha256 = "sha256-NEW_HASH_HERE";
+})
+```
+
+## Next Steps
+
+After successful installation:
+
+<CardGrid>
+  <Card title="🚀 Quick Start" icon="rocket">
+    Set up your first tunnel
+    
+    [Quick Start Guide →](/quick-start/)
+  </Card>
+  <Card title="🔧 Configuration" icon="setting">
+    Learn about configuration options
+    
+    [Basic Configuration →](/config/basic/)
+  </Card>
+  <Card title="🔒 Security" icon="shield">
+    Implement security features
+    
+    [Security Configuration →](/config/security/)
+  </Card>
+  <Card title="📖 Examples" icon="open-book">
+    See real-world examples
+    
+    [View Examples →](/examples/basic/)
+  </Card>
+</CardGrid>
+
+## Advanced Installation
+
+### Custom Package Override
+
+To use a specific ngrok version:
+
+```nix
+{
+  services.ngrok = {
+    enable = true;
+    package = pkgs.ngrok.overrideAttrs (old: {
+      version = "3.5.0";
+      src = pkgs.fetchurl {
+        url = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz";
+        sha256 = "specific-version-hash";
+      };
+    });
+    authToken = "your-token";
+  };
+}
+```
+
+### Multi-Architecture Support
+
+For ARM64 systems:
+
+```nix
+{
+  # The module automatically handles architecture detection
+  services.ngrok = {
+    enable = true;
+    authToken = "your-token";
+    # Configuration works the same on aarch64-linux
+  };
+}
+```
+
+### Custom Build from Source
+
+```nix
+{
+  services.ngrok = {
+    enable = true;
+    package = pkgs.callPackage ./custom-ngrok.nix {};
+    authToken = "your-token";
+  };
+}
+```
+
+---
+
+You're now ready to configure and use the ngrok NixOS service! Continue to the [Quick Start Guide](/quick-start/) for your first tunnel setup.
